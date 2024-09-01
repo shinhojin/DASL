@@ -43,10 +43,13 @@ To run the benchmark, use the following command:
 - `Write Count` : Number of insertion operations to perform
 - `Read Count` : Number of lookup operations to perform
 - `Benchmark` : Select the benchmark type. You can use either the number of name to select it.
-  - `Synthetic Benchmarks`: 0 - Sequential, 1 - Uniform, 2 - Zipfian, 3~8 - YCSB(A~F)
-  - `Real-World Benchmarks`: 9 - fb, 10 - books, 11 - wiki, 12 - osm
-  - `Latency Benchmarks`: 13 - Sequential, 14 - Uniform, 15 - Zipfian
-  - `Scan Benchmarks`: 16 - Scan
+  - `Synthetic Benchmarks`: 0 - Sequential, 1 - Reverse Sequential 2 - Uniform, 3 - Zipfian
+  - `YCSB Benchmarks`: 4~9 - YCSB(A~F)
+  - `Real-World Benchmarks`: 10 - fb, 11 - books, 12 - wiki, 13 - osm
+  - `Latency Benchmarks`: 14 - Sequential, 15 - Uniform, 16 - Zipfian
+  - `Scan Benchmarks`: 17 - Scan
+  - `Breakdown Benchmarks (Uniform Only)`: 18 - +Array, 19 - +Raise, 20 - +Search, 21 - +Split
+  - `Even Split Benchmarks `: 22 - Sequential, 23 - Reverse Sequential, 24 - Uniform, 25 - Zipfian
 
 ### Example Command
 

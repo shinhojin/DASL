@@ -10,7 +10,7 @@
 #include <bit>
 #include <functional>
 
-#define ARR_SIZE 4
+#define ARR_SIZE 64
 #define MAXHEIGHT 50
 
 #define PREFETCH_DISTANCE 8
@@ -49,7 +49,7 @@ class SkipList {
 
     // DASL's lookup functions
     bool Contains(const Key& key) const; 
-    bool Contains_Height(const Key& key) const;
+    bool Contains_Raise(const Key& key) const;
 
     // DASL's Scan functions
     Key Scan(const Key& key, const int scan_num);
@@ -2190,7 +2190,7 @@ bool SkipList<Key>::Contains(const Key& key) const {
 }
 
 template<typename Key>
-bool SkipList<Key>::Contains_Height(const Key& key) const {
+bool SkipList<Key>::Contains_Raise(const Key& key) const {
     int height = GetMaxHeight() - 1;
     Key result_key = -1;
     Node* x = head_[height]; // Use when searching

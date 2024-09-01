@@ -491,6 +491,31 @@ void Uniform(const int write, const int read, SkipList<Key>& sl) {
     printf("\n[Uniform] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
 }
 
+void RevSequential(const int write, const int read, SkipList<Key>& sl) {
+    // Insert keys reverse sequentially
+    auto w_start = Clock::now();
+    for (int i = write; i > 0; i--) {
+        sl.Insert_usplit(i);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+
+    // Search for keys reverse sequentially
+    auto r_start = Clock::now();
+    for (int i = read; i > 0; i--) {
+        sl.Contains(i);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[Rev-Sequential] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
 
 void Sequential(const int write, const int read, SkipList<Key>& sl) {
     // Insert keys sequentially
@@ -672,25 +697,284 @@ void Uniform_Scan(const int write, const int read, SkipList<Key> &sl) {
     printf("\n[Uniform-Scan] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
 }
 
+void Array(const int write, const int read, SkipList<Key>& sl) {
+    // Uniformly distributed random generator
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distr(0, write);
+
+    // Insert random keys
+    auto w_start = Clock::now();
+    for (int i = 1; i <= write; ++i) {
+        Key key = distr(gen)+1;
+        sl.Insert_Array(key);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+
+    // Search random keys
+    auto r_start = Clock::now();
+    for (int i = 1; i <= read; ++i) {
+        Key key = distr(gen)+1;
+        sl.Contains_Raise(key);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[+Array] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
+
+void Raise(const int write, const int read, SkipList<Key>& sl) {
+    // Uniformly distributed random generator
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distr(0, write);
+
+    // Insert random keys
+    auto w_start = Clock::now();
+    for (int i = 1; i <= write; ++i) {
+        Key key = distr(gen)+1;
+        sl.Insert_Raise(key);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+
+    // Search random keys
+    auto r_start = Clock::now();
+    for (int i = 1; i <= read; ++i) {
+        Key key = distr(gen)+1;
+        sl.Contains_Raise(key);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[+Raise] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
+
+void Search(const int write, const int read, SkipList<Key>& sl) {
+    // Uniformly distributed random generator
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distr(0, write);
+
+    // Insert random keys
+    auto w_start = Clock::now();
+    for (int i = 1; i <= write; ++i) {
+        Key key = distr(gen)+1;
+        sl.Insert_Search(key);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+
+    // Search random keys
+    auto r_start = Clock::now();
+    for (int i = 1; i <= read; ++i) {
+        Key key = distr(gen)+1;
+        sl.Contains(key);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[+Search] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
+
+void Split(const int write, const int read, SkipList<Key>& sl) {
+    // Uniformly distributed random generator
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distr(0, write);
+
+    // Insert random keys
+    auto w_start = Clock::now();
+    for (int i = 1; i <= write; ++i) {
+        Key key = distr(gen)+1;
+        sl.Insert_usplit(key);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+
+    // Search random keys
+    auto r_start = Clock::now();
+    for (int i = 1; i <= read; ++i) {
+        Key key = distr(gen)+1;
+        sl.Contains(key);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[+Split] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
+
+void EvenSplitSequential(const int write, const int read, SkipList<Key>& sl) {
+    // Insert keys sequentially
+    auto w_start = Clock::now();
+    for (int i = 1; i <= write; ++i) {
+        sl.Insert_esplit(i);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+
+    // Search for keys sequentially
+    auto r_start = Clock::now();
+    for (int i = 1; i <= read; ++i) {
+        sl.Contains(i);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[EvenSplit Sequential] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
+
+void EvenSplitRevSequential(const int write, const int read, SkipList<Key>& sl) {
+    // Insert keys reverse sequentially
+    auto w_start = Clock::now();
+    for (int i = write; i > 0; i--) {
+        sl.Insert_esplit(i);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+
+    // Search for keys reverse sequentially
+    auto r_start = Clock::now();
+    for (int i = read; i > 0; i--) {
+        sl.Contains(i);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[EvenSplit - RevSequential] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
+
+void EvenSplitUniform(const int write, const int read, SkipList<Key>& sl) {
+    // Uniformly distributed random generator
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distr(0, write);
+
+    // Insert random keys
+    auto w_start = Clock::now();
+    for (int i = 1; i <= write; ++i) {
+        Key key = distr(gen)+1;
+        sl.Insert_esplit(key);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+
+    // Search random keys
+    auto r_start = Clock::now();
+    for (int i = 1; i <= read; ++i) {
+        Key key = distr(gen)+1;
+        sl.Contains(key);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[EvenSplit Uniform] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
+
+void EvenSplitZipfian(const int write, const int read, SkipList<Key>& sl) {
+    // Zipfian distribution generator
+    init_zipf_generator(0, write);
+
+    // Insert keys following Zipfian distribution
+    auto w_start = Clock::now();
+    for (int i = 1; i <= write; ++i) {
+        Key key = nextValue() % write+1;        
+        sl.Insert_esplit(key);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+
+    // Search for keys following Zipfian distribution
+    auto r_start = Clock::now();
+    for (int i = 1; i <= read; ++i) {
+        Key key = nextValue() % read+1;
+        sl.Contains(key);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[EvenSplit Zipfian] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
+
 void printUsage(const char* programName) {
     std::cerr << "\nUsage: " << programName << " [Write Count] [Read Count] [Benchmark]\n"
               << "Benchmark can be selected by number or name.\n"
               << "Synthetic Benchmarks:\n"
               << "  0 - Sequential\n"
-              << "  1 - Uniform\n"
-              << "  2 - Zipfian\n"
-              << "  3~8 - YCSB(A~F)\n\n"
+              << "  1 - Rev-Sequential\n"
+              << "  2 - Uniform\n"
+              << "  3 - Zipfian\n"
+              << "  4~9 - YCSB(A~F)\n\n"
               << "Real-World Benchmarks: (Fixed Dataset Size: 200M)\n"
-              << "  9 - fb\n"
-              << " 10 - books\n"
-              << " 11 - wiki\n"
-              << " 12 - osm\n\n"
+              << " 10 - fb\n"
+              << " 11 - books\n"
+              << " 12 - wiki\n"
+              << " 13 - osm\n\n"
               << "Latency Benchmarks:\n"
-              << " 13 - Sequential_latency\n"
-              << " 14 - Uniform_latency\n"
-              << " 15 - Zipfian_latency\n\n"
+              << " 14 - Sequential_latency\n"
+              << " 15 - Uniform_latency\n"
+              << " 16 - Zipfian_latency\n\n"
               << "Scan Benchmarks:\n"
-              << " 16 - Scan\n";
+              << " 17 - Scan\n"
+              << "Breakdown Benchmarks (Uniform Only):\n"
+              << " 18 - +Array\n"
+              << " 19 - +Raise\n"
+              << " 20 - +Search\n"
+              << " 21 - +Split"
+              << "Even Split Benchmarks:"
+              << " 22 - Sequential\n"
+              << " 23 - Rev-Sequential\n"
+              << " 24 - Uniform\n"
+              << " 25 - Zipfian\n";
 }
 
 int main(int argc, char *argv[]) {
@@ -718,24 +1002,33 @@ int main(int argc, char *argv[]) {
     switch (B) {
         // Type 1:
         case 0: runBenchmarkType1("Sequential", Sequential); break;
-        case 1: runBenchmarkType1("Uniform", Uniform); break;
-        case 2: runBenchmarkType1("Zipfian", Zipfian); break;
-        case 3: runBenchmarkType1("YCSB-A", YCSBWorkloadA); break;
-        case 4: runBenchmarkType1("YCSB-B", YCSBWorkloadB); break;
-        case 5: runBenchmarkType1("YCSB-C", YCSBWorkloadC); break;
-        case 6: runBenchmarkType1("YCSB-D", YCSBWorkloadD); break;
-        case 7: runBenchmarkType1("YCSB-E", YCSBWorkloadE); break;
-        case 8: runBenchmarkType1("YCSB-F", YCSBWorkloadF); break;
-        case 13: runBenchmarkType1("Sequential Latency", Sequential_latency); break;
-        case 14: runBenchmarkType1("Uniform Latency", Uniform_latency); break;
-        case 15: runBenchmarkType1("Zipfian Latency", Zipfian_latency); break;
-        case 16: runBenchmarkType1("Uniform Scan", Uniform_Scan); break;
+        case 1: runBenchmarkType1("Rev-Sequential", RevSequential); break;
+        case 2: runBenchmarkType1("Uniform", Uniform); break;
+        case 3: runBenchmarkType1("Zipfian", Zipfian); break;
+        case 4: runBenchmarkType1("YCSB-A", YCSBWorkloadA); break;
+        case 5: runBenchmarkType1("YCSB-B", YCSBWorkloadB); break;
+        case 6: runBenchmarkType1("YCSB-C", YCSBWorkloadC); break;
+        case 7: runBenchmarkType1("YCSB-D", YCSBWorkloadD); break;
+        case 8: runBenchmarkType1("YCSB-E", YCSBWorkloadE); break;
+        case 9: runBenchmarkType1("YCSB-F", YCSBWorkloadF); break;
+        case 14: runBenchmarkType1("Sequential Latency", Sequential_latency); break;
+        case 15: runBenchmarkType1("Uniform Latency", Uniform_latency); break;
+        case 16: runBenchmarkType1("Zipfian Latency", Zipfian_latency); break;
+        case 17: runBenchmarkType1("Uniform Scan", Uniform_Scan); break;
+        case 18: runBenchmarkType1("+Array", Array); break;
+        case 19: runBenchmarkType1("+Raise", Raise); break;
+        case 20: runBenchmarkType1("+Search", Search); break;
+        case 21: runBenchmarkType1("+Split", Split); break;
+        case 22: runBenchmarkType1("EvenSplit-Sequential", EvenSplitSequential); break;
+        case 23: runBenchmarkType1("EvenSplit-RevSequential", EvenSplitRevSequential); break;
+        case 24: runBenchmarkType1("EvenSplit-Uniform", EvenSplitUniform); break;
+        case 25: runBenchmarkType1("EvenSplit-Zipfian", EvenSplitZipfian); break;
         
         // Type 2:
-        case 9: runBenchmarkType2("Real-World Dataset (fb)", fb); break;
-        case 10: runBenchmarkType2("Real-World Dataset (books)", books); break;
-        case 11: runBenchmarkType2("Real-World Dataset (wiki)", wiki); break;
-        case 12: runBenchmarkType2("Real-World Dataset (osm)", osm); break;
+        case 10: runBenchmarkType2("Real-World Dataset (fb)", fb); break;
+        case 11: runBenchmarkType2("Real-World Dataset (books)", books); break;
+        case 12: runBenchmarkType2("Real-World Dataset (wiki)", wiki); break;
+        case 13: runBenchmarkType2("Real-World Dataset (osm)", osm); break;
 
         default:
             std::cerr << "Invalid benchmark option provided.\n";
