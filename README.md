@@ -44,7 +44,7 @@ To run the benchmark, use the following command:
 - `Read Count` : Number of lookup operations to perform
 - `Benchmark` : Select the benchmark type. You can use either the number of name to select it.
   - `Synthetic Benchmarks`: 0 - Sequential, 1 - Reverse Sequential 2 - Uniform, 3 - Zipfian
-  - `YCSB Benchmarks`: 4~9 - YCSB(A~F)
+  - `YCSB Benchmarks (Included YCSB (Load))`: 4 - YCSB (A), 5 - YCSB (B), 6 - YCSB (C), 7 - YCSB (D), 8 - YCSB (E), 9 - YCSB (F)
   - `Real-World Benchmarks`: 10 - fb, 11 - books, 12 - wiki, 13 - osm
   - `Latency Benchmarks`: 14 - Sequential, 15 - Uniform, 16 - Zipfian
   - `Scan Benchmarks`: 17 - Scan
