@@ -488,7 +488,7 @@ void Uniform(const int write, const int read, SkipList<Key>& sl) {
     float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
-    printf("\n[Uniform] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+    printf("\n[Uniform] Insertion = %.2lf ms, Lookup = %.2lf ms\n", w_time, r_time);
 }
 
 void RevSequential(const int write, const int read, SkipList<Key>& sl) {
@@ -679,7 +679,8 @@ void Uniform_Scan(const int write, const int read, SkipList<Key> &sl) {
 
     auto w_start = Clock::now();
     for(int i = 1; i <= write; i++) {
-        Key key = distr(gen)+1;
+        //Key key = distr(gen)+1;
+        Key key = i;
         sl.Insert_usplit(key);
     }
     auto w_end = Clock::now();
@@ -687,14 +688,14 @@ void Uniform_Scan(const int write, const int read, SkipList<Key> &sl) {
     auto r_start = Clock::now();
     for(int i = 1; i <= read; i++) {
         Key key = distr(gen)+1;
-        sl.Scan(key, 100);
+        sl.Scan(key, 10000);
     }
     auto r_end = Clock::now();
 
     float r_time, w_time;
     r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
     w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
-    printf("\n[Uniform-Scan] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+    printf("\n[Uniform-Scan] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time / read, r_time / read);
 }
 
 void Array(const int write, const int read, SkipList<Key>& sl) {
@@ -703,10 +704,13 @@ void Array(const int write, const int read, SkipList<Key>& sl) {
     std::mt19937 gen(rd());
     std::uniform_int_distribution<int> distr(0, write);
 
+    //init_zipf_generator(0, write);
+
     // Insert random keys
     auto w_start = Clock::now();
     for (int i = 1; i <= write; ++i) {
         Key key = distr(gen)+1;
+        //Key key = i;
         sl.Insert_Array(key);
     }
     auto w_end = Clock::now();
@@ -718,8 +722,9 @@ void Array(const int write, const int read, SkipList<Key>& sl) {
     // Search random keys
     auto r_start = Clock::now();
     for (int i = 1; i <= read; ++i) {
-        Key key = distr(gen)+1;
-        sl.Contains_Raise(key);
+        //Key key = distr(gen)+1;
+        Key key = nextValue() % read + 1;
+        sl.Contains_Array(key);
     }
     auto r_end = Clock::now();
 

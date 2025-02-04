@@ -10,10 +10,8 @@
 #include <bit>
 #include <functional>
 
-#define ARR_SIZE 64
+#define ARR_SIZE 4
 #define MAXHEIGHT 50
-
-#define PREFETCH_DISTANCE 8
 
 typedef uint64_t Key; // Key is an 8-byte integer
 
@@ -50,9 +48,13 @@ class SkipList {
     // DASL's lookup functions
     bool Contains(const Key& key) const; 
     bool Contains_Raise(const Key& key) const;
+    bool Contains_Array(const Key& key) const;
 
-    // DASL's Scan functions
+    // DASL's scan functions
     Key Scan(const Key& key, const int scan_num);
+
+    // DASL's delete function
+    bool Delete(const Key& key) const;
 
     // DASL's profiling functions
     void Array_utilization();
@@ -86,6 +88,8 @@ class SkipList {
     int findMaxLessOrEqualLinear(Key arr[], Key target, int size) const;
     int findMaxLessOrEqualLinearSIMD(Key arr[], Key target, int size) const;
 
+    int findMaxLessOrEqualLinearArray(Key arr[], Key target, int size, int idx) const;
+
     // Intra-node search with branchless binary search
     // findMaxLessOrEqual == findMaxLessOrEqualBinary
     int findMaxLessOrEqual(Key arr[], Key target) const; 
@@ -96,6 +100,7 @@ class SkipList {
 template<typename Key>
 struct SkipList<Key>::Node {
     Key keys[ARR_SIZE]; // keys[0] = leader key of current node
+    int low_idx[ARR_SIZE]; // For Array() function
     Node* forward;
     Node* next[ARR_SIZE];
     int N_key;
@@ -105,6 +110,7 @@ struct SkipList<Key>::Node {
         for(int i = 0; i < ARR_SIZE; i++) {
             keys[i] = 0;
             next[i] = nullptr;
+            low_idx[i] = -1;
         }
         this->keys[0] = key;
     }
@@ -131,6 +137,16 @@ SkipList<Key>::SkipList() {
 template<typename Key>
 int SkipList<Key>::findMaxLessOrEqualLinear(Key arr[], Key target, int size) const {
     for (int i = 0; i < size; ++i) {
+        if (compare_(arr[i], target) > 0) {
+            return i - 1;
+        }
+    }
+    return size - 1;
+}
+
+template<typename Key>
+int SkipList<Key>::findMaxLessOrEqualLinearArray(Key arr[], Key target, int size, int idx) const {
+    for (int i = idx; i < size; ++i) {
         if (compare_(arr[i], target) > 0) {
             return i - 1;
         }
@@ -2160,6 +2176,111 @@ void SkipList<Key>::Insert_Array(const Key& key) {
 }
 
 template<typename Key>
+bool SkipList<Key>::Delete(const Key& key) const {
+    Node* prev_[MAXHEIGHT];
+    Node* pprev_[MAXHEIGHT];
+    std::copy(std::begin(head_), std::end(head_), std::begin(prev_));
+    std::copy(std::begin(head_), std::end(head_), std::begin(pprev_));
+    int height = GetMaxHeight() - 1; // Using for search
+    Node* x = head_[height]; // Use when searching
+    
+    if (x->forward != nullptr && compare_(x->forward->keys[0], key) <= 0) {
+        pprev_[height] = x;
+        x = x->forward;
+    }
+
+    while (true) { // Find the location which will insert the key using prev_ and head_
+        prev_[height--] = x;
+        if (height >= 0) {
+            int n_key = x->N_key;
+            if (n_key <= ARR_SIZE/2) {
+                int index1 = findMaxLessOrEqualLinearSIMD(x->keys, key, n_key);
+                x = (x == head_[height + 1]) ? head_[height] : x->next[index1];
+                if (index1 > 0) {
+                    pprev_[height] = prev_[height+1]->next[index1 - 1];
+                } else {
+                    if (pprev_[height+1] == head_[height+1]) {
+                        pprev_[height] = head_[height];
+                    } else { pprev_[height] = pprev_[height + 1]->next[pprev_[height + 1]->N_key-1]; }
+                }
+            } else {
+                int index2 = findMaxLessOrEqualBinary(x->keys, key);
+                x = (x == head_[height + 1]) ? head_[height] : x->next[index2];
+                if (index2 > 0) {
+                    pprev_[height] = prev_[height+1]->next[index2 - 1];
+                } else {
+                    if (pprev_[height+1] == head_[height+1]) {
+                        pprev_[height] = head_[height];
+                    } else { pprev_[height] = pprev_[height + 1]->next[pprev_[height + 1]->N_key-1]; }
+                }
+            }
+        } else {
+            break;
+        }
+    }
+
+    int idx2 = findMaxLessOrEqualBinary(x->keys, key);
+    
+    if (key != x->keys[idx2]) {
+        return false;
+    } else if (idx2 > 0) {
+        if (idx2 < x->N_key) {
+            std::memmove(&x->keys[idx2], &x->keys[idx2 + 1], (x->N_key - idx2 - 1) * sizeof(Key));
+        }
+        x->keys[x->N_key-1] = 0;
+        x->N_key--;
+        return true;
+    } else {
+        int level = 0;
+        while (true) {
+            if (x->N_key > 1) {
+                Key del_key = x->keys[0];
+                Key update_key = x->keys[1];
+                std::memmove(&x->keys[idx2], &x->keys[idx2 + 1], (x->N_key - idx2 - 1) * sizeof(Key));
+                x->keys[x->N_key-1] = 0;
+                x->N_key--;
+
+                for (int i = level+1; i < GetMaxHeight(); i++) {
+                    if (prev_[i] != nullptr) {
+                        int idx = findMaxLessOrEqual(prev_[i]->keys, del_key);
+                        if (prev_[i]->keys[idx] == del_key) {
+                            prev_[i]->keys[idx] = update_key;
+                        }
+                        if (idx != 0) break;
+                    }
+                }
+                break;
+            } else {
+                Key del_key = x->keys[0];
+                x->N_key--;
+                pprev_[0]->forward = x->forward;
+                x->forward = nullptr;
+
+                for (int i = level+1; i < GetMaxHeight(); i++) {
+                    if (prev_[i] != nullptr) {
+                        int idx = findMaxLessOrEqual(prev_[i]->keys, del_key);
+                        if (prev_[i]->keys[idx] == del_key) {
+                            std::memmove(&prev_[i]->keys[idx], &prev_[i]->keys[idx + 1], (prev_[i]->N_key - idx - 1) * sizeof(Key));
+                            std::memmove(&prev_[i]->next[idx], &prev_[i]->next[idx + 1], (prev_[i]->N_key - idx - 1) * sizeof(Key));
+                            prev_[i]->keys[prev_[i]->N_key - 1] = 0;
+                            prev_[i]->next[prev_[i]->N_key - 1] = nullptr;
+                            prev_[i]->N_key--;
+                            if (prev_[i]->N_key == 0) {
+                                pprev_[i]->forward = prev_[i]->forward;
+                                prev_[i]->forward = nullptr;
+                            }
+                        }
+                        if (idx != 0) break;
+                    }
+                }
+                break;
+            }
+        }
+        return true;
+    }
+}
+
+template<typename Key>
 bool SkipList<Key>::Contains(const Key& key) const {
     int height = GetMaxHeight() - 1;
     Key result_key = -1;
@@ -2216,25 +2337,53 @@ bool SkipList<Key>::Contains_Raise(const Key& key) const {
     }
 }
 
+template<typename Key>
+bool SkipList<Key>::Contains_Array(const Key& key) const {
+    int height = GetMaxHeight() - 1;
+    Key result_key = -1;
+    Node* x = head_[height]; // Use when searching
+
+    while (true) {
+        while (x->forward != nullptr && compare_(x->forward->keys[0], key) <= 0) {
+            x = x->forward;
+        }
+        height--;
+        if (height >= 0) {
+            int n_key = x->N_key;
+            x = (x == head_[height + 1]) ? head_[height] : x->next[findMaxLessOrEqualLinear(x->keys, key, n_key)];
+        } else {
+            break;
+        }
+    }
+
+    int n_key = x->N_key;
+    int idx2 = findMaxLessOrEqualLinear(x->keys, key, n_key);
+    result_key = x->keys[idx2];
+
+    if (x != nullptr && compare_(result_key, key) == 0) {
+        return true;
+    } else {
+        return false;
+    }
+}
+
 
 template<typename Key>
 Key SkipList<Key>::Scan(const Key& key, const int scan_num) {
     int height = GetMaxHeight() - 1;
-    int result_key;
+    int result_key = -1;
     Key temp_key;
 
     Node* x = head_[height]; // Use when searching
 
-    while (x->forward != nullptr && compare_(x->forward->keys[0], key) <= 0) {
-        x = x->forward;
-    }
+    if (x->forward != nullptr && compare_(x->forward->keys[0], key) <= 0) x = x->forward;
 
     while (true) { // Find the location which will insert the key using prev_ and head_
         height--;
         if (height >= 0) {
             int n_key = x->N_key;
             if (n_key <= ARR_SIZE/2) {
-                x = (x == head_[height + 1]) ? head_[height] : x->next[findMaxLessOrEqualLinear(x->keys, key, n_key)];
+                x = (x == head_[height + 1]) ? head_[height] : x->next[findMaxLessOrEqualLinearSIMD(x->keys, key, n_key)];
             } else {
                 x = (x == head_[height + 1]) ? head_[height] : x->next[findMaxLessOrEqualBinary(x->keys, key)];
             }
