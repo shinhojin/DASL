@@ -66,8 +66,8 @@ void fb(SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate and display times
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
     printf("\n[Real-fb] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
 }
 
@@ -111,8 +111,8 @@ void books(SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate and display times
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
     printf("\n[Real-books] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
 }
 
@@ -156,8 +156,8 @@ void wiki(SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate and display times
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
     printf("\n[Real-wiki] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
 }
 
@@ -201,8 +201,8 @@ void osm(SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate and display times
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
     printf("\n[Real-osm] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
 }
 
@@ -220,7 +220,7 @@ void YCSBWorkloadA(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for keys
     auto r_start = Clock::now();
@@ -238,7 +238,7 @@ void YCSBWorkloadA(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[YCSB-A] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -258,7 +258,7 @@ void YCSBWorkloadB(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for keys
     auto r_start = Clock::now();
@@ -276,7 +276,7 @@ void YCSBWorkloadB(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[YCSB-B] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -296,7 +296,7 @@ void YCSBWorkloadC(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for keys
     auto r_start = Clock::now();
@@ -307,7 +307,7 @@ void YCSBWorkloadC(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[YCSB-C] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -328,7 +328,7 @@ void YCSBWorkloadD(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for keys
     auto r_start = Clock::now();
@@ -346,7 +346,7 @@ void YCSBWorkloadD(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[YCSB-D] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -366,7 +366,7 @@ void YCSBWorkloadE(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Scan keys
     auto r_start = Clock::now();
@@ -384,7 +384,7 @@ void YCSBWorkloadE(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate scan time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[YCSB-E] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -404,7 +404,7 @@ void YCSBWorkloadF(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Read-modify-write for keys
     auto r_start = Clock::now();
@@ -423,7 +423,7 @@ void YCSBWorkloadF(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate operation time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[YCSB-F] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -443,7 +443,7 @@ void Zipfian(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for keys following Zipfian distribution
     auto r_start = Clock::now();
@@ -454,7 +454,7 @@ void Zipfian(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[Zipfian] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -475,7 +475,7 @@ void Uniform(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for random keys
     auto r_start = Clock::now();
@@ -485,10 +485,10 @@ void Uniform(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
-    printf("\n[Uniform] Insertion = %.2lf ms, Lookup = %.2lf ms\n", w_time, r_time);
+    printf("\n[Uniform] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
 }
 
 void RevSequential(const int write, const int read, SkipList<Key>& sl) {
@@ -501,7 +501,7 @@ void RevSequential(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for keys reverse sequentially
     auto r_start = Clock::now();
@@ -511,7 +511,7 @@ void RevSequential(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[Rev-Sequential] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -527,7 +527,7 @@ void Sequential(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for keys sequentially
     auto r_start = Clock::now();
@@ -537,7 +537,7 @@ void Sequential(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[Sequential] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -717,7 +717,7 @@ void Array(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search random keys
     auto r_start = Clock::now();
@@ -729,7 +729,7 @@ void Array(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[+Array] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -751,7 +751,7 @@ void Raise(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search random keys
     auto r_start = Clock::now();
@@ -762,7 +762,7 @@ void Raise(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[+Raise] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -784,7 +784,7 @@ void Search(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search random keys
     auto r_start = Clock::now();
@@ -795,7 +795,7 @@ void Search(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[+Search] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -817,7 +817,7 @@ void Split(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search random keys
     auto r_start = Clock::now();
@@ -828,7 +828,7 @@ void Split(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[+Split] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -844,7 +844,7 @@ void EvenSplitSequential(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for keys sequentially
     auto r_start = Clock::now();
@@ -854,7 +854,7 @@ void EvenSplitSequential(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[EvenSplit Sequential] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -870,7 +870,7 @@ void EvenSplitRevSequential(const int write, const int read, SkipList<Key>& sl) 
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for keys reverse sequentially
     auto r_start = Clock::now();
@@ -880,7 +880,7 @@ void EvenSplitRevSequential(const int write, const int read, SkipList<Key>& sl) 
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[EvenSplit - RevSequential] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -902,7 +902,7 @@ void EvenSplitUniform(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search random keys
     auto r_start = Clock::now();
@@ -913,7 +913,7 @@ void EvenSplitUniform(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[EvenSplit Uniform] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
@@ -933,7 +933,7 @@ void EvenSplitZipfian(const int write, const int read, SkipList<Key>& sl) {
     std::cout << "After Insert\n";
 
     // Calculate insertion time
-    float w_time = std::chrono::duration_cast<std::chrono::microseconds>(w_end - w_start).count() * 0.001;
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
 
     // Search for keys following Zipfian distribution
     auto r_start = Clock::now();
@@ -944,10 +944,72 @@ void EvenSplitZipfian(const int write, const int read, SkipList<Key>& sl) {
     auto r_end = Clock::now();
 
     // Calculate search time
-    float r_time = std::chrono::duration_cast<std::chrono::microseconds>(r_end - r_start).count() * 0.001;
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
 
     // Display results
     printf("\n[EvenSplit Zipfian] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
+
+void Zipfian_Delete(const int write, const int read, SkipList<Key>& sl) {
+    // Zipfian distribution generator
+    init_zipf_generator(0, write);
+
+    // Insert keys following Zipfian distribution
+    auto w_start = Clock::now();
+    for (int i = 1; i <= write; ++i) {
+        Key key = nextValue() % write+1;        
+        sl.Insert_usplit(key);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
+
+    // Search for keys following Zipfian distribution
+    auto r_start = Clock::now();
+    for (int i = 1; i <= read; ++i) {
+        Key key = nextValue() % read+1;
+        sl.Delete(key);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[Zipfian] Insertion = %.2lf µs, Deletion = %.2lf µs\n", w_time, r_time);
+}
+
+void Uniform_Delete(const int write, const int read, SkipList<Key>& sl) {
+    // Uniformly distributed random generator
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<int> distr(1, write);
+
+    // Insert random keys
+    auto w_start = Clock::now();
+    for (int i = 1; i <= write; ++i) {
+        sl.Insert_usplit(distr(gen)+1);
+    }
+    auto w_end = Clock::now();
+    std::cout << "After Insert\n";
+
+    // Calculate insertion time
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
+
+    // Search for random keys
+    auto r_start = Clock::now();
+    for (int i = 1; i <= read; ++i) {
+        sl.Delete(distr(gen)+1);
+    }
+    auto r_end = Clock::now();
+
+    // Calculate search time
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
+
+    // Display results
+    printf("\n[Uniform] Insertion = %.2lf µs, Deletion = %.2lf µs\n", w_time, r_time);
 }
 
 void printUsage(const char* programName) {
@@ -979,7 +1041,10 @@ void printUsage(const char* programName) {
               << " 22 - Sequential\n"
               << " 23 - Rev-Sequential\n"
               << " 24 - Uniform\n"
-              << " 25 - Zipfian\n";
+              << " 25 - Zipfian\n"
+              << "Deletion Benchmarks:\n"
+              << " 26 - Uniform Deletion\n"
+              << " 27 - Zipfian Deletion";
 }
 
 int main(int argc, char *argv[]) {
@@ -1028,6 +1093,8 @@ int main(int argc, char *argv[]) {
         case 23: runBenchmarkType1("EvenSplit-RevSequential", EvenSplitRevSequential); break;
         case 24: runBenchmarkType1("EvenSplit-Uniform", EvenSplitUniform); break;
         case 25: runBenchmarkType1("EvenSplit-Zipfian", EvenSplitZipfian); break;
+        case 26: runBenchmarkType1("Uniform Deletion", Uniform_Delete); break;
+        case 27: runBenchmarkType1("Zipfian Deletion", Zipfian_Delete); break;
         
         // Type 2:
         case 10: runBenchmarkType2("Real-World Dataset (fb)", fb); break;

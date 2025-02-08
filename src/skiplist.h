@@ -10,7 +10,7 @@
 #include <bit>
 #include <functional>
 
-#define ARR_SIZE 4
+#define ARR_SIZE 64
 #define MAXHEIGHT 50
 
 typedef uint64_t Key; // Key is an 8-byte integer
