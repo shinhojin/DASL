@@ -1,5 +1,5 @@
 CXX = g++
-CXXFLAGS = -Wall -g -mavx2
+CXXFLAGS = -Wall -g -mavx2 -pthread
 
 TARGET = sl_test
 OBJS = src/skiplist_test.o src/zipf.o src/latest-generator.o

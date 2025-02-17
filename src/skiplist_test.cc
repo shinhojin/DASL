@@ -8,6 +8,9 @@
 #include <fstream>
 #include <string>
 #include <vector>
+#include <thread>
+#include <cstdio>
+
 
 #include "zipf.h"
 #include "latest-generator.h"
@@ -1012,6 +1015,61 @@ void Uniform_Delete(const int write, const int read, SkipList<Key>& sl) {
     printf("\n[Uniform] Insertion = %.2lf µs, Deletion = %.2lf µs\n", w_time, r_time);
 }
 
+void Uniform_Parallel(const int write, const int read, SkipList<Key>& sl) {
+    
+    auto w_start = Clock::now();
+    std::vector<std::thread> insertThreads;
+    int insertPerThread = write / 2;
+    int insertRemaining = write % 2;
+    
+    for (int t = 0; t < 2; ++t) {
+        int count = insertPerThread + (t < insertRemaining ? 1 : 0);
+        insertThreads.emplace_back([count, write, &sl]() {
+            std::random_device rd_local;
+            std::mt19937 localGen(rd_local());
+            std::uniform_int_distribution<int> localDistr(1, write);
+            for (int i = 0; i < count; ++i) {
+                Key key = localDistr(localGen) + 1;
+                sl.Insert_usplit_parallel2(key);
+            }
+        });
+    }
+    
+    for (auto& th : insertThreads) {
+        th.join();
+    }
+    auto w_end = Clock::now();
+    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001f;
+
+    sl.Print();
+    std::cout << "After Insert\n"; 
+    
+    auto r_start = Clock::now();
+    std::vector<std::thread> searchThreads;
+    int searchPerThread = read / 2;
+    int searchRemaining = read % 2;
+    
+    for (int t = 0; t < 2; ++t) {
+        int count = searchPerThread + (t < searchRemaining ? 1 : 0);
+        searchThreads.emplace_back([count, write, &sl]() {
+            std::random_device rd_local;
+            std::mt19937 localGen(rd_local());
+            std::uniform_int_distribution<int> localDistr(1, write);
+            for (int i = 0; i < count; ++i) {
+                sl.Contains(localDistr(localGen) + 1);
+            }
+        });
+    }
+    
+    for (auto& th : searchThreads) {
+        th.join();
+    }
+    auto r_end = Clock::now();
+    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001f;
+    
+    printf("\n[Uniform_Parallel] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
+}
+
 void printUsage(const char* programName) {
     std::cerr << "\nUsage: " << programName << " [Write Count] [Read Count] [Benchmark]\n\n"
               << "Benchmark can be selected by number or name.\n\n"
@@ -1095,6 +1153,7 @@ int main(int argc, char *argv[]) {
         case 25: runBenchmarkType1("EvenSplit-Zipfian", EvenSplitZipfian); break;
         case 26: runBenchmarkType1("Uniform Deletion", Uniform_Delete); break;
         case 27: runBenchmarkType1("Zipfian Deletion", Zipfian_Delete); break;
+        case 28: runBenchmarkType1("Uniform Parallel", Uniform_Parallel); break;
         
         // Type 2:
         case 10: runBenchmarkType2("Real-World Dataset (fb)", fb); break;
