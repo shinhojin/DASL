@@ -3,7 +3,7 @@
 This repository contains the implementation of DASL (Deterministic Arrayed Skip List), a novel in-memory index that enhances tail latency, microarchitecture friendliness, and reduces restructuring overhead, as proposed in the research paper:
 
 **DASL: An Index for Enhancing Tail Latency, Microarchitecture Friendliness, and Restructuring Overhead**  
-by Hojin Shin, Bryan S. Kim, Seehwan Yoo, and Jongmoo Choi. (Submitted)
+by Hojin Shin, Bryan S. Kim, Seehwan Yoo, and Jongmoo Choi. (IEEE Access)
 
 ## Repository Structure
 
