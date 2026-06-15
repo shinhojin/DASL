@@ -29,6 +29,10 @@ int compare_(const Key& a, const Key& b) {
     }
 }
 
+inline bool key_at_matches(const Key arr[], int idx, const Key& target) {
+    return idx >= 0 && idx < ARR_SIZE && compare_(arr[idx], target) == 0;
+}
+
 template<typename Key>
 class SkipList {
    private:
@@ -36,10 +40,6 @@ class SkipList {
 
    public:
     SkipList();
-
-    std::mutex mutex_;
-    void Insert_usplit_parallel(const Key& key);
-    void Insert_usplit_parallel2(const Key& key);
 
     // DASL's insertion functions
     void Insert_usplit(const Key& key); // Code for insertion with uneven-split
@@ -110,7 +110,6 @@ struct SkipList<Key>::Node {
     Node* forward;
     Node* next[ARR_SIZE];
     int N_key;
-    std::mutex mtx;
 
     Node(Key key) : N_key(1) {
         this->forward = nullptr;
@@ -212,960 +211,6 @@ int SkipList<Key>::findMaxLessOrEqual(Key arr[], Key target) const {
     return begin - arr;
 }
 
-// Parallel insertion using optimistic search and fine-grained locking
-template<typename Key>
-void SkipList<Key>::Insert_usplit_parallel2(const Key& key) {    
-    Node* prev_[MAXHEIGHT];
-    std::copy(std::begin(head_), std::end(head_), std::begin(prev_));
-    int height = GetMaxHeight() - 1; // 검색에 사용
-    Node* x = head_[height]; // 검색에 사용
-
-    std::unique_lock<std::mutex> global_lock(mutex_);
-
-    if (x->forward != nullptr && compare_(x->forward->keys[0], key) <= 0) {
-        x = x->forward;
-    }
-
-    std::vector<std::unique_lock<std::mutex>> locks;
-
-    while (true) { // prev_와 head_를 사용해 삽입 위치 탐색
-        prev_[height--] = x;
-        locks.emplace_back(prev_[height+1]->mtx, std::defer_lock);
-        if (height >= 0) {
-            int n_key = x->N_key;
-            if (n_key <= ARR_SIZE/2) {
-                x = (x == head_[height + 1])
-                        ? head_[height]
-                        : x->next[findMaxLessOrEqualLinearSIMD(x->keys, key, n_key)];
-            } else {
-                x = (x == head_[height + 1])
-                        ? head_[height]
-                        : x->next[findMaxLessOrEqualBinary(x->keys, key)];
-            }
-        } else {
-            break;
-        }
-    }
-
-    std::unique_lock<std::mutex> lock1(prev_[height+1]->mtx, std::defer_lock);
-    std::unique_lock<std::mutex> lock2(prev_[height]->mtx, std::defer_lock);
-    
-    std::lock(lock1, lock2);  // 여러 뮤텍스를 동시에 잠금
-
-    // 중복 키 허용하지 않음
-    if (prev_[0] != head_[0]) {
-        for (int i = 0; i < prev_[0]->N_key; i++) {
-            if (compare_(prev_[0]->keys[i], key) == 0) {
-                return;
-            }
-        }
-    }
-    
-    // 삽입 작업 수행
-    int level = 0;
-    while (true) {
-        int stop_flag = 0;
-        int cur_height = GetMaxHeight() - 1;
-        if (prev_[level] == head_[level] && prev_[level]->forward == nullptr) {
-            // Case 1: 리스트에 노드가 없으므로 새 노드 생성
-            if (level == 0) { // Case 1-1: H0에 삽입
-                Node* Elist_node = NewNode(key);
-                Elist_node->forward = prev_[level]->forward;
-                prev_[level]->forward = Elist_node;
-                break;
-            } else { // Case 1-2: H0가 아닌 경우
-                if (cur_height < level) {
-                    max_height_++;
-                }
-                if (prev_[level-1]->forward != nullptr && prev_[level-1] == head_[level-1]) {
-                    Node* Elist_node = NewNode(prev_[level-1]->forward->keys[0]);
-                    Elist_node->forward = prev_[level]->forward;
-                    Elist_node->next[0] = prev_[level-1]->forward;
-                    prev_[level]->forward = Elist_node;
-                } else {
-                    Node* Elist_node = NewNode(prev_[level-1]->keys[0]);
-                    Elist_node->forward = prev_[level]->forward;
-                    Elist_node->next[0] = prev_[level-1];
-                    prev_[level]->forward = Elist_node;
-                }
-                break;
-            }
-        } else if (prev_[level] == head_[level]) {
-            // Case 2: 리스트에 다른 노드가 존재하므로 새 노드 생성
-            if (prev_[level]->forward->N_key != ARR_SIZE) { // Case 2-1: forward 노드에 공간이 있음
-                if (level == 0) { // Case 2-1-1: H0에 삽입
-                    int idx = findMaxLessOrEqual(prev_[level]->forward->keys, key);
-                    if (idx == 0 && prev_[level]->forward->keys[0] > key)
-                        idx = -1;
-
-                    if (prev_[level]->forward->keys[idx] == key) {
-                        break;
-                    } else if (prev_[level]->forward->keys[idx+1] == 0) {
-                        prev_[level]->forward->keys[idx+1] = key;
-                        prev_[level]->forward->N_key++;
-                        if (prev_[level]->forward->N_key == ARR_SIZE) {
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            } 
-                        } else break;
-                    } else {
-                        Key update_key = prev_[level]->forward->keys[0];
-                        std::memmove(&prev_[level]->forward->keys[idx+2],
-                                     &prev_[level]->forward->keys[idx+1],
-                                     (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
-                        prev_[level]->forward->keys[idx+1] = key;
-                        prev_[level]->forward->N_key++;
-                        if (idx == -1) {
-                            for (int i = level+1; i < GetMaxHeight(); i++) {
-                                if (prev_[i] != nullptr) {
-                                    int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
-                                        prev_[i]->forward->keys[idx] = key;
-                                    }
-                                    if (idx != 0)
-                                        break;
-                                }
-                            }
-                        }
-
-                        if (prev_[level]->forward->N_key == ARR_SIZE) {
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            } 
-                        } else break;
-                    }
-                } else { // Case 2-1-2: H0가 아닌 경우
-                    int idx = findMaxLessOrEqual(prev_[level]->forward->keys, prev_[level-1]->forward->keys[0]);
-                    if (idx == 0 && prev_[level]->forward->keys[0] > prev_[level-1]->forward->keys[0])
-                        idx = -1;
-
-                    if (prev_[level]->forward->keys[idx] == prev_[level-1]->forward->keys[0]) {
-                        break;
-                    } else if (prev_[level]->forward->keys[idx+1] == 0) {
-                        prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
-                        prev_[level]->forward->next[idx+1] = prev_[level-1]->forward;
-                        prev_[level]->forward->N_key++;
-                        if (prev_[level]->forward->N_key == ARR_SIZE) {
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            } 
-                        } else break;
-                    } else {
-                        Key update_key = prev_[level]->forward->keys[0];
-                        std::memmove(&prev_[level]->forward->keys[idx+2],
-                                     &prev_[level]->forward->keys[idx+1],
-                                     (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        std::memmove(&prev_[level]->forward->next[idx+2],
-                                     &prev_[level]->forward->next[idx+1],
-                                     (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
-                        prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
-                        prev_[level]->forward->next[idx+1] = prev_[level-1];
-                        prev_[level]->forward->N_key++;
-                        if (idx == -1) {
-                            for (int i = level+1; i < GetMaxHeight(); i++) {
-                                if (prev_[i] != nullptr) {
-                                    int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
-                                        prev_[i]->forward->keys[idx] = prev_[level-1]->forward->keys[0];
-                                    }
-                                    if (idx != 0)
-                                        break;
-                                }
-                            }
-                        }
-
-                        if (prev_[level]->forward->N_key == ARR_SIZE) {
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            } 
-                        } else break;
-                    }
-                }
-            } else { // Case 2-2: forward 노드에 공간이 없으므로 새 노드 생성
-                if (level == 0) { // Case 2-2-1: H0에 삽입
-                    int idx = findMaxLessOrEqual(prev_[level]->forward->keys, key);
-                    if (idx == 0 && prev_[level]->forward->keys[0] > key) {
-                        Node* add_node = NewNode(key);
-                        add_node->forward = prev_[level]->forward;
-                        prev_[level]->forward = add_node;    
-                    } else {
-                        Node* add_node = NewNode(key);
-                        std::memcpy(add_node->keys+1,
-                                    &prev_[level]->forward->keys[idx+1],
-                                    (ARR_SIZE - (idx+1)) * sizeof(Key));
-                        std::memset(&prev_[level]->forward->keys[idx+1],
-                                    0,
-                                    (ARR_SIZE - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
-                        add_node->N_key += ARR_SIZE - (idx+1);
-                        add_node->forward = prev_[level]->forward->forward;
-                        prev_[level]->forward->N_key -= ARR_SIZE - (idx+1);
-                        prev_[level]->forward->forward = add_node;
-                        prev_[level] = add_node;
-                        level++; // 추적 계속
-                        if (cur_height < level) {
-                            max_height_++;
-                        }
-                    }
-                } else { // Case 2-2-2: H0가 아닌 경우
-                    if (prev_[level-1] == head_[level-1]) {
-                        Node* add_node = NewNode(prev_[level-1]->forward->keys[0]);
-                        add_node->forward = prev_[level]->forward;
-                        add_node->next[0] = prev_[level-1]->forward;
-                        prev_[level]->forward = add_node;
-                    } else {
-                        Node* add_node = NewNode(prev_[level-1]->keys[0]);
-                        add_node->forward = prev_[level]->forward;
-                        add_node->next[0] = prev_[level-1];
-                        prev_[level]->forward = add_node;
-                    }
-                    break;
-                }
-            }
-        } else {
-            // Case 3: prev_ 노드 내부 혹은 노드 사이에 새 노드 삽입
-            if (prev_[level]->N_key != ARR_SIZE) { // Case 3-1: prev_ 노드에 공간이 있으므로 해당 노드에 삽입
-                if (level == 0) { // Case 3-1-1: H0에 삽입
-                    int idx = findMaxLessOrEqual(prev_[level]->keys, key);
-                    if (idx == 0 && prev_[level]->keys[0] > key)
-                        idx = -1;
-                    if (prev_[level]->keys[idx] == key) {
-                        stop_flag++;
-                    } else {
-                        if (prev_[level]->keys[idx+1] == 0) {
-                            prev_[level]->keys[idx+1] = key;
-                            prev_[level]->N_key++;    
-                        } else {
-                            std::memmove(&prev_[level]->keys[idx+2],
-                                         &prev_[level]->keys[idx+1],
-                                         (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
-                            prev_[level]->keys[idx+1] = key;
-                            prev_[level]->N_key++;
-                        }
-                        if (prev_[level]->N_key == ARR_SIZE &&
-                            prev_[level+1] == head_[level+1]) {
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            }
-                        } else {
-                            stop_flag++;
-                        }
-                    }
-                } else { // Case 3-1-2: H0가 아닌 경우
-                    int idx = findMaxLessOrEqual(prev_[level]->keys, prev_[level-1]->keys[0]);
-                    if (idx == 0 && prev_[level]->keys[0] > prev_[level-1]->keys[0])
-                        idx = -1;
-                    if (prev_[level]->keys[idx] == prev_[level-1]->keys[0]) {
-                        stop_flag++;
-                    } else {
-                        if (prev_[level]->keys[idx+1] == 0) {
-                            prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
-                            prev_[level]->next[idx+1] = prev_[level-1];
-                            prev_[level]->N_key++;
-                        } else {
-                            std::memmove(&prev_[level]->keys[idx+2],
-                                         &prev_[level]->keys[idx+1],
-                                         (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            std::memmove(&prev_[level]->next[idx+2],
-                                         &prev_[level]->next[idx+1],
-                                         (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
-                            prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
-                            prev_[level]->next[idx+1] = prev_[level-1];
-                            prev_[level]->N_key++;
-                        }
-                    }
-                    if (prev_[level]->N_key == ARR_SIZE &&
-                        prev_[level+1] == head_[level+1]) {
-                        level++;
-                        if (cur_height < level) {
-                            max_height_++;
-                        }
-                    } else {
-                        stop_flag++;
-                    }
-                }
-            } else { // Case 3-2: prev_ 노드에 공간이 없으므로 새 노드 생성 (불균등 분할)
-                if (level == 0) { // Case 3-2-1: H0에 삽입
-                    split_count++; // Signal.Jin
-                    int idx = findMaxLessOrEqual(prev_[level]->keys, key);
-                    if (idx == 0 && prev_[level]->keys[0] > key)
-                        idx = -1;
-                    { 
-                        if (idx == ARR_SIZE-1) {
-                            Node* add_node = NewNode(key);
-                            add_node->forward = prev_[level]->forward;
-                            prev_[level]->forward = add_node;
-                            prev_[level] = add_node;
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            }
-                        } else {
-                            if (idx < ARR_SIZE / 2) {
-                                Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
-                                std::memcpy(add_node->keys,
-                                            &prev_[level]->keys[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                std::memset(&prev_[level]->keys[ARR_SIZE/2],
-                                            0,
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
-                                add_node->N_key = ARR_SIZE/2;
-                                add_node->forward = prev_[level]->forward;
-                                prev_[level]->forward = add_node;
-                                if (idx == ARR_SIZE / 2 - 1) {
-                                    prev_[level]->keys[idx + 1] = key;
-                                    prev_[level]->N_key = ARR_SIZE / 2 + 1;
-                                } else {
-                                    Key update_key = prev_[level]->keys[0];
-                                    prev_[level]->N_key = ARR_SIZE / 2;
-                                    std::memmove(&prev_[level]->keys[idx+2],
-                                                 &prev_[level]->keys[idx+1],
-                                                 (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                    shift_count++; // Signal.Jin
-                                    prev_[level]->keys[idx+1] = key;
-                                    prev_[level]->N_key++;
-                                    if (idx == -1) {
-                                        for (int update = level+1; update < GetMaxHeight(); update++) {
-                                            int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                                            if (prev_[update]->forward->keys[idx] == update_key) {
-                                                prev_[update]->forward->keys[idx] = key;
-                                            }
-                                            if (idx != 0)
-                                                break;
-                                        }
-                                        stop_flag++;
-                                    }
-                                }
-                                prev_[level] = add_node;
-                                level++; // 추적 계속
-                                if (cur_height < level) {
-                                    max_height_++;
-                                }
-                            } else {
-                                prev_[level]->N_key = ARR_SIZE / 2;
-                                idx = idx - ARR_SIZE / 2;
-                                Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
-                                std::memcpy(add_node->keys,
-                                            &prev_[level]->keys[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                std::memset(&prev_[level]->keys[ARR_SIZE/2],
-                                            0,
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
-                                add_node->N_key = ARR_SIZE/2 + 1;
-                                add_node->forward = prev_[level]->forward;
-                                prev_[level]->forward = add_node;
-                                prev_[level] = add_node;
-                                std::memmove(&prev_[level]->keys[idx+2],
-                                             &prev_[level]->keys[idx+1],
-                                             (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                shift_count++; // Signal.Jin
-                                prev_[level]->keys[idx+1] = key;
-                                level++;
-                                if (cur_height < level) {
-                                    max_height_++;
-                                }
-                            }
-                        }
-                    }
-                } else { // Case 3-2-2: H0가 아닌 경우
-                    split_count++; // Signal.Jin
-                    int idx = findMaxLessOrEqual(prev_[level]->keys, prev_[level-1]->keys[0]);
-                    if (idx == 0 && prev_[level]->keys[0] > prev_[level-1]->keys[0])
-                        idx = -1;
-                    {
-                        if (idx == ARR_SIZE-1) {
-                            Node* add_node = NewNode(prev_[level-1]->keys[0]);
-                            add_node->forward = prev_[level]->forward;
-                            add_node->next[0] = prev_[level-1];
-                            prev_[level]->forward = add_node;
-                            prev_[level] = add_node;
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            }
-                        } else {
-                            if (idx < ARR_SIZE / 2) {
-                                Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
-                                std::memcpy(add_node->keys,
-                                            &prev_[level]->keys[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                std::memcpy(add_node->next,
-                                            &prev_[level]->next[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(prev_[level]->next[0]));
-                                std::memset(&prev_[level]->keys[ARR_SIZE/2],
-                                            0,
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
-                                for (int i = ARR_SIZE/2; i < ARR_SIZE; i++) {
-                                    prev_[level]->next[i] = nullptr;
-                                }
-                                add_node->N_key = ARR_SIZE/2;
-                                add_node->forward = prev_[level]->forward;
-                                prev_[level]->forward = add_node;
-                                if (prev_[level]->keys[idx+1] == 0) {
-                                    prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
-                                    prev_[level]->next[idx+1] = prev_[level-1];
-                                    prev_[level]->N_key = ARR_SIZE / 2 + 1;
-                                } else {
-                                    Key update_key = prev_[level]->keys[0];
-                                    prev_[level]->N_key = ARR_SIZE / 2;
-                                    std::memmove(&prev_[level]->keys[idx+2],
-                                                 &prev_[level]->keys[idx+1],
-                                                 (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                    std::memmove(&prev_[level]->next[idx+2],
-                                                 &prev_[level]->next[idx+1],
-                                                 (prev_[level]->N_key - (idx+1)) * sizeof(prev_[level]->next[0]));
-                                    shift_count++; // Signal.Jin
-                                    prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
-                                    prev_[level]->next[idx+1] = prev_[level-1];
-                                    prev_[level]->N_key++;
-                                    if (idx == -1) {
-                                        for (int update = level+1; update < GetMaxHeight(); update++) {
-                                            int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                                            if (prev_[update]->forward->keys[idx] == update_key) {
-                                                prev_[update]->forward->keys[idx] = prev_[level]->forward->keys[0];
-                                            }
-                                            if (idx != 0)
-                                                break;
-                                        }
-                                        stop_flag++;
-                                    }
-                                }
-                                prev_[level] = add_node;
-                                level++; // 추적 계속
-                                if (cur_height < level) {
-                                    max_height_++;
-                                }
-                            } else {
-                                prev_[level]->N_key = ARR_SIZE / 2;
-                                idx = idx - ARR_SIZE / 2;
-                                Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
-                                std::memcpy(add_node->keys,
-                                            &prev_[level]->keys[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                std::memcpy(add_node->next,
-                                            &prev_[level]->next[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(prev_[level]->next[0]));
-                                std::memset(&prev_[level]->keys[ARR_SIZE/2],
-                                            0,
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
-                                for (int i = ARR_SIZE/2; i < ARR_SIZE; i++) {
-                                    prev_[level]->next[i] = nullptr;
-                                }
-                                add_node->N_key = ARR_SIZE/2 + 1;
-                                add_node->forward = prev_[level]->forward;
-                                prev_[level]->forward = add_node;
-                                prev_[level] = add_node;
-                                std::memmove(&prev_[level]->keys[idx+2],
-                                             &prev_[level]->keys[idx+1],
-                                             (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                std::memmove(&prev_[level]->next[idx+2],
-                                             &prev_[level]->next[idx+1],
-                                             (prev_[level]->N_key - (idx+1)) * sizeof(prev_[level]->next[0]));
-                                shift_count++; // Signal.Jin
-                                prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
-                                prev_[level]->next[idx+1] = prev_[level-1];
-                                level++;
-                                if (cur_height < level) {
-                                    max_height_++;
-                                }
-                            }
-                        }
-                    }   
-                }
-            }
-        }
-
-        if (stop_flag > 0) {
-            break;
-        }
-    }
-}
-
-template<typename Key>
-void SkipList<Key>::Insert_usplit_parallel(const Key& key) {   
-    // 함수 시작 시 mutex를 획득하여 임계 구역에 진입
-    std::lock_guard<std::mutex> lock(mutex_);
-
-    Node* prev_[MAXHEIGHT];
-    std::copy(std::begin(head_), std::end(head_), std::begin(prev_));
-    int height = GetMaxHeight() - 1; // 검색에 사용
-    Node* x = head_[height]; // 검색에 사용
-
-    if (x->forward != nullptr && compare_(x->forward->keys[0], key) <= 0)
-        x = x->forward;
-
-    while (true) { // prev_와 head_를 사용해 삽입 위치 탐색
-        prev_[height--] = x;
-        if (height >= 0) {
-            int n_key = x->N_key;
-            if (n_key <= ARR_SIZE/2) {
-                x = (x == head_[height + 1])
-                        ? head_[height]
-                        : x->next[findMaxLessOrEqualLinearSIMD(x->keys, key, n_key)];
-            } else {
-                x = (x == head_[height + 1])
-                        ? head_[height]
-                        : x->next[findMaxLessOrEqualBinary(x->keys, key)];
-            }
-        } else {
-            break;
-        }
-    }
-    // 중복 키 허용하지 않음
-    if (prev_[0] != head_[0]) {
-        for (int i = 0; i < prev_[0]->N_key; i++) {
-            if (compare_(prev_[0]->keys[i], key) == 0) {
-                return;
-            }
-        }
-    }
-    
-    // 삽입 작업 수행
-    int level = 0;
-    while (true) {
-        int stop_flag = 0;
-        int cur_height = GetMaxHeight() - 1;
-        if (prev_[level] == head_[level] && prev_[level]->forward == nullptr) {
-            // Case 1: 리스트에 노드가 없으므로 새 노드 생성
-            if (level == 0) { // Case 1-1: H0에 삽입
-                Node* Elist_node = NewNode(key);
-                Elist_node->forward = prev_[level]->forward;
-                prev_[level]->forward = Elist_node;
-                break;
-            } else { // Case 1-2: H0가 아닌 경우
-                if (cur_height < level) {
-                    max_height_++;
-                }
-                if (prev_[level-1]->forward != nullptr && prev_[level-1] == head_[level-1]) {
-                    Node* Elist_node = NewNode(prev_[level-1]->forward->keys[0]);
-                    Elist_node->forward = prev_[level]->forward;
-                    Elist_node->next[0] = prev_[level-1]->forward;
-                    prev_[level]->forward = Elist_node;
-                } else {
-                    Node* Elist_node = NewNode(prev_[level-1]->keys[0]);
-                    Elist_node->forward = prev_[level]->forward;
-                    Elist_node->next[0] = prev_[level-1];
-                    prev_[level]->forward = Elist_node;
-                }
-                break;
-            }
-        } else if (prev_[level] == head_[level]) {
-            // Case 2: 리스트에 다른 노드가 존재하므로 새 노드 생성
-            if (prev_[level]->forward->N_key != ARR_SIZE) { // Case 2-1: forward 노드에 공간이 있음
-                if (level == 0) { // Case 2-1-1: H0에 삽입
-                    int idx = findMaxLessOrEqual(prev_[level]->forward->keys, key);
-                    if (idx == 0 && prev_[level]->forward->keys[0] > key)
-                        idx = -1;
-
-                    if (prev_[level]->forward->keys[idx] == key) {
-                        break;
-                    } else if (prev_[level]->forward->keys[idx+1] == 0) {
-                        prev_[level]->forward->keys[idx+1] = key;
-                        prev_[level]->forward->N_key++;
-                        if (prev_[level]->forward->N_key == ARR_SIZE) {
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            } 
-                        } else break;
-                    } else {
-                        Key update_key = prev_[level]->forward->keys[0];
-                        std::memmove(&prev_[level]->forward->keys[idx+2],
-                                     &prev_[level]->forward->keys[idx+1],
-                                     (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
-                        prev_[level]->forward->keys[idx+1] = key;
-                        prev_[level]->forward->N_key++;
-                        if (idx == -1) {
-                            for (int i = level+1; i < GetMaxHeight(); i++) {
-                                if (prev_[i] != nullptr) {
-                                    int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
-                                        prev_[i]->forward->keys[idx] = key;
-                                    }
-                                    if (idx != 0)
-                                        break;
-                                }
-                            }
-                        }
-
-                        if (prev_[level]->forward->N_key == ARR_SIZE) {
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            } 
-                        } else break;
-                    }
-                } else { // Case 2-1-2: H0가 아닌 경우
-                    int idx = findMaxLessOrEqual(prev_[level]->forward->keys, prev_[level-1]->forward->keys[0]);
-                    if (idx == 0 && prev_[level]->forward->keys[0] > prev_[level-1]->forward->keys[0])
-                        idx = -1;
-
-                    if (prev_[level]->forward->keys[idx] == prev_[level-1]->forward->keys[0]) {
-                        break;
-                    } else if (prev_[level]->forward->keys[idx+1] == 0) {
-                        prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
-                        prev_[level]->forward->next[idx+1] = prev_[level-1]->forward;
-                        prev_[level]->forward->N_key++;
-                        if (prev_[level]->forward->N_key == ARR_SIZE) {
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            } 
-                        } else break;
-                    } else {
-                        Key update_key = prev_[level]->forward->keys[0];
-                        std::memmove(&prev_[level]->forward->keys[idx+2],
-                                     &prev_[level]->forward->keys[idx+1],
-                                     (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        std::memmove(&prev_[level]->forward->next[idx+2],
-                                     &prev_[level]->forward->next[idx+1],
-                                     (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
-                        prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
-                        prev_[level]->forward->next[idx+1] = prev_[level-1];
-                        prev_[level]->forward->N_key++;
-                        if (idx == -1) {
-                            for (int i = level+1; i < GetMaxHeight(); i++) {
-                                if (prev_[i] != nullptr) {
-                                    int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
-                                        prev_[i]->forward->keys[idx] = prev_[level-1]->forward->keys[0];
-                                    }
-                                    if (idx != 0)
-                                        break;
-                                }
-                            }
-                        }
-
-                        if (prev_[level]->forward->N_key == ARR_SIZE) {
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            } 
-                        } else break;
-                    }
-                }
-            } else { // Case 2-2: forward 노드에 공간이 없으므로 새 노드 생성
-                if (level == 0) { // Case 2-2-1: H0에 삽입
-                    int idx = findMaxLessOrEqual(prev_[level]->forward->keys, key);
-                    if (idx == 0 && prev_[level]->forward->keys[0] > key) {
-                        Node* add_node = NewNode(key);
-                        add_node->forward = prev_[level]->forward;
-                        prev_[level]->forward = add_node;    
-                    } else {
-                        Node* add_node = NewNode(key);
-                        std::memcpy(add_node->keys+1,
-                                    &prev_[level]->forward->keys[idx+1],
-                                    (ARR_SIZE - (idx+1)) * sizeof(Key));
-                        std::memset(&prev_[level]->forward->keys[idx+1],
-                                    0,
-                                    (ARR_SIZE - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
-                        add_node->N_key += ARR_SIZE - (idx+1);
-                        add_node->forward = prev_[level]->forward->forward;
-                        prev_[level]->forward->N_key -= ARR_SIZE - (idx+1);
-                        prev_[level]->forward->forward = add_node;
-                        prev_[level] = add_node;
-                        level++; // 추적 계속
-                        if (cur_height < level) {
-                            max_height_++;
-                        }
-                    }
-                } else { // Case 2-2-2: H0가 아닌 경우
-                    if (prev_[level-1] == head_[level-1]) {
-                        Node* add_node = NewNode(prev_[level-1]->forward->keys[0]);
-                        add_node->forward = prev_[level]->forward;
-                        add_node->next[0] = prev_[level-1]->forward;
-                        prev_[level]->forward = add_node;
-                    } else {
-                        Node* add_node = NewNode(prev_[level-1]->keys[0]);
-                        add_node->forward = prev_[level]->forward;
-                        add_node->next[0] = prev_[level-1];
-                        prev_[level]->forward = add_node;
-                    }
-                    break;
-                }
-            }
-        } else {
-            // Case 3: prev_ 노드 내부 혹은 노드 사이에 새 노드 삽입
-            if (prev_[level]->N_key != ARR_SIZE) { // Case 3-1: prev_ 노드에 공간이 있으므로 해당 노드에 삽입
-                if (level == 0) { // Case 3-1-1: H0에 삽입
-                    int idx = findMaxLessOrEqual(prev_[level]->keys, key);
-                    if (idx == 0 && prev_[level]->keys[0] > key)
-                        idx = -1;
-                    if (prev_[level]->keys[idx] == key) {
-                        stop_flag++;
-                    } else {
-                        if (prev_[level]->keys[idx+1] == 0) {
-                            prev_[level]->keys[idx+1] = key;
-                            prev_[level]->N_key++;    
-                        } else {
-                            std::memmove(&prev_[level]->keys[idx+2],
-                                         &prev_[level]->keys[idx+1],
-                                         (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
-                            prev_[level]->keys[idx+1] = key;
-                            prev_[level]->N_key++;
-                        }
-                        if (prev_[level]->N_key == ARR_SIZE &&
-                            prev_[level+1] == head_[level+1]) {
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            }
-                        } else {
-                            stop_flag++;
-                        }
-                    }
-                } else { // Case 3-1-2: H0가 아닌 경우
-                    int idx = findMaxLessOrEqual(prev_[level]->keys, prev_[level-1]->keys[0]);
-                    if (idx == 0 && prev_[level]->keys[0] > prev_[level-1]->keys[0])
-                        idx = -1;
-                    if (prev_[level]->keys[idx] == prev_[level-1]->keys[0]) {
-                        stop_flag++;
-                    } else {
-                        if (prev_[level]->keys[idx+1] == 0) {
-                            prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
-                            prev_[level]->next[idx+1] = prev_[level-1];
-                            prev_[level]->N_key++;
-                        } else {
-                            std::memmove(&prev_[level]->keys[idx+2],
-                                         &prev_[level]->keys[idx+1],
-                                         (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            std::memmove(&prev_[level]->next[idx+2],
-                                         &prev_[level]->next[idx+1],
-                                         (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
-                            prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
-                            prev_[level]->next[idx+1] = prev_[level-1];
-                            prev_[level]->N_key++;
-                        }
-                    }
-                    if (prev_[level]->N_key == ARR_SIZE &&
-                        prev_[level+1] == head_[level+1]) {
-                        level++;
-                        if (cur_height < level) {
-                            max_height_++;
-                        }
-                    } else {
-                        stop_flag++;
-                    }
-                }
-            } else { // Case 3-2: prev_ 노드에 공간이 없으므로 새 노드 생성 (불균등 분할)
-                if (level == 0) { // Case 3-2-1: H0에 삽입
-                    split_count++; // Signal.Jin
-                    int idx = findMaxLessOrEqual(prev_[level]->keys, key);
-                    if (idx == 0 && prev_[level]->keys[0] > key)
-                        idx = -1;
-                    { 
-                        if (idx == ARR_SIZE-1) {
-                            Node* add_node = NewNode(key);
-                            add_node->forward = prev_[level]->forward;
-                            prev_[level]->forward = add_node;
-                            prev_[level] = add_node;
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            }
-                        } else {
-                            if (idx < ARR_SIZE / 2) {
-                                Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
-                                std::memcpy(add_node->keys,
-                                            &prev_[level]->keys[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                std::memset(&prev_[level]->keys[ARR_SIZE/2],
-                                            0,
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
-                                add_node->N_key = ARR_SIZE/2;
-                                add_node->forward = prev_[level]->forward;
-                                prev_[level]->forward = add_node;
-                                if (idx == ARR_SIZE / 2 - 1) {
-                                    prev_[level]->keys[idx + 1] = key;
-                                    prev_[level]->N_key = ARR_SIZE / 2 + 1;
-                                } else {
-                                    Key update_key = prev_[level]->keys[0];
-                                    prev_[level]->N_key = ARR_SIZE / 2;
-                                    std::memmove(&prev_[level]->keys[idx+2],
-                                                 &prev_[level]->keys[idx+1],
-                                                 (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                    shift_count++; // Signal.Jin
-                                    prev_[level]->keys[idx+1] = key;
-                                    prev_[level]->N_key++;
-                                    if (idx == -1) {
-                                        for (int update = level+1; update < GetMaxHeight(); update++) {
-                                            int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                                            if (prev_[update]->forward->keys[idx] == update_key) {
-                                                prev_[update]->forward->keys[idx] = key;
-                                            }
-                                            if (idx != 0)
-                                                break;
-                                        }
-                                        stop_flag++;
-                                    }
-                                }
-                                prev_[level] = add_node;
-                                level++; // 추적 계속
-                                if (cur_height < level) {
-                                    max_height_++;
-                                }
-                            } else {
-                                prev_[level]->N_key = ARR_SIZE / 2;
-                                idx = idx - ARR_SIZE / 2;
-                                Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
-                                std::memcpy(add_node->keys,
-                                            &prev_[level]->keys[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                std::memset(&prev_[level]->keys[ARR_SIZE/2],
-                                            0,
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
-                                add_node->N_key = ARR_SIZE/2 + 1;
-                                add_node->forward = prev_[level]->forward;
-                                prev_[level]->forward = add_node;
-                                prev_[level] = add_node;
-                                std::memmove(&prev_[level]->keys[idx+2],
-                                             &prev_[level]->keys[idx+1],
-                                             (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                shift_count++; // Signal.Jin
-                                prev_[level]->keys[idx+1] = key;
-                                level++;
-                                if (cur_height < level) {
-                                    max_height_++;
-                                }
-                            }
-                        }
-                    }
-                } else { // Case 3-2-2: H0가 아닌 경우
-                    split_count++; // Signal.Jin
-                    int idx = findMaxLessOrEqual(prev_[level]->keys, prev_[level-1]->keys[0]);
-                    if (idx == 0 && prev_[level]->keys[0] > prev_[level-1]->keys[0])
-                        idx = -1;
-                    {
-                        if (idx == ARR_SIZE-1) {
-                            Node* add_node = NewNode(prev_[level-1]->keys[0]);
-                            add_node->forward = prev_[level]->forward;
-                            add_node->next[0] = prev_[level-1];
-                            prev_[level]->forward = add_node;
-                            prev_[level] = add_node;
-                            level++;
-                            if (cur_height < level) {
-                                max_height_++;
-                            }
-                        } else {
-                            if (idx < ARR_SIZE / 2) {
-                                Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
-                                std::memcpy(add_node->keys,
-                                            &prev_[level]->keys[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                std::memcpy(add_node->next,
-                                            &prev_[level]->next[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(prev_[level]->next[0]));
-                                std::memset(&prev_[level]->keys[ARR_SIZE/2],
-                                            0,
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
-                                for (int i = ARR_SIZE/2; i < ARR_SIZE; i++) {
-                                    prev_[level]->next[i] = nullptr;
-                                }
-                                add_node->N_key = ARR_SIZE/2;
-                                add_node->forward = prev_[level]->forward;
-                                prev_[level]->forward = add_node;
-                                if (prev_[level]->keys[idx+1] == 0) {
-                                    prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
-                                    prev_[level]->next[idx+1] = prev_[level-1];
-                                    prev_[level]->N_key = ARR_SIZE / 2 + 1;
-                                } else {
-                                    Key update_key = prev_[level]->keys[0];
-                                    prev_[level]->N_key = ARR_SIZE / 2;
-                                    std::memmove(&prev_[level]->keys[idx+2],
-                                                 &prev_[level]->keys[idx+1],
-                                                 (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                    std::memmove(&prev_[level]->next[idx+2],
-                                                 &prev_[level]->next[idx+1],
-                                                 (prev_[level]->N_key - (idx+1)) * sizeof(prev_[level]->next[0]));
-                                    shift_count++; // Signal.Jin
-                                    prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
-                                    prev_[level]->next[idx+1] = prev_[level-1];
-                                    prev_[level]->N_key++;
-                                    if (idx == -1) {
-                                        for (int update = level+1; update < GetMaxHeight(); update++) {
-                                            int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                                            if (prev_[update]->forward->keys[idx] == update_key) {
-                                                prev_[update]->forward->keys[idx] = prev_[level]->forward->keys[0];
-                                            }
-                                            if (idx != 0)
-                                                break;
-                                        }
-                                        stop_flag++;
-                                    }
-                                }
-                                prev_[level] = add_node;
-                                level++; // 추적 계속
-                                if (cur_height < level) {
-                                    max_height_++;
-                                }
-                            } else {
-                                prev_[level]->N_key = ARR_SIZE / 2;
-                                idx = idx - ARR_SIZE / 2;
-                                Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
-                                std::memcpy(add_node->keys,
-                                            &prev_[level]->keys[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                std::memcpy(add_node->next,
-                                            &prev_[level]->next[ARR_SIZE/2],
-                                            (ARR_SIZE/2) * sizeof(prev_[level]->next[0]));
-                                std::memset(&prev_[level]->keys[ARR_SIZE/2],
-                                            0,
-                                            (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
-                                for (int i = ARR_SIZE/2; i < ARR_SIZE; i++) {
-                                    prev_[level]->next[i] = nullptr;
-                                }
-                                add_node->N_key = ARR_SIZE/2 + 1;
-                                add_node->forward = prev_[level]->forward;
-                                prev_[level]->forward = add_node;
-                                prev_[level] = add_node;
-                                std::memmove(&prev_[level]->keys[idx+2],
-                                             &prev_[level]->keys[idx+1],
-                                             (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                std::memmove(&prev_[level]->next[idx+2],
-                                             &prev_[level]->next[idx+1],
-                                             (prev_[level]->N_key - (idx+1)) * sizeof(prev_[level]->next[0]));
-                                shift_count++; // Signal.Jin
-                                prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
-                                prev_[level]->next[idx+1] = prev_[level-1];
-                                level++;
-                                if (cur_height < level) {
-                                    max_height_++;
-                                }
-                            }
-                        }
-                    }   
-                }
-            }
-        }
-
-        if (stop_flag > 0) {
-            break;
-        }
-    }
-}
-
 template<typename Key>
 void SkipList<Key>::Insert_usplit(const Key& key) {
     Node* prev_[MAXHEIGHT];
@@ -1233,7 +278,7 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                     int idx = findMaxLessOrEqual(prev_[level]->forward->keys, key);
                     if (idx == 0 && prev_[level]->forward->keys[0] > key) idx = -1;
 
-                    if (prev_[level]->forward->keys[idx] == key) {
+                    if (key_at_matches(prev_[level]->forward->keys, idx, key)) {
                         break;
                     } else if (prev_[level]->forward->keys[idx+1] == 0) {
                         prev_[level]->forward->keys[idx+1] = key;
@@ -1247,14 +292,13 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                     } else {
                         Key update_key = prev_[level]->forward->keys[0];
                         std::memmove(&prev_[level]->forward->keys[idx+2], &prev_[level]->forward->keys[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         prev_[level]->forward->keys[idx+1] = key;
                         prev_[level]->forward->N_key++;
                         if (idx == -1) {
                             for (int i = level+1; i < GetMaxHeight(); i++) {
                                 if (prev_[i] != nullptr) {
                                     int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
+                                    if (key_at_matches(prev_[i]->forward->keys, idx, update_key)) {
                                         prev_[i]->forward->keys[idx] = key;
                                     }
                                     if (idx != 0) break;
@@ -1273,7 +317,7 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                     int idx = findMaxLessOrEqual(prev_[level]->forward->keys, prev_[level-1]->forward->keys[0]);
                     if (idx == 0 && prev_[level]->forward->keys[0] > prev_[level-1]->forward->keys[0]) idx = -1;
 
-                    if (prev_[level]->forward->keys[idx] == prev_[level-1]->forward->keys[0]) {
+                    if (key_at_matches(prev_[level]->forward->keys, idx, prev_[level-1]->forward->keys[0])) {
                         break;
                     } else if (prev_[level]->forward->keys[idx+1] == 0) {
                         prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
@@ -1289,7 +333,6 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                         Key update_key = prev_[level]->forward->keys[0];
                         std::memmove(&prev_[level]->forward->keys[idx+2], &prev_[level]->forward->keys[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
                         std::memmove(&prev_[level]->forward->next[idx+2], &prev_[level]->forward->next[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
                         prev_[level]->forward->next[idx+1] = prev_[level-1]->forward;
                         prev_[level]->forward->N_key++;
@@ -1297,7 +340,7 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                             for (int i = level+1; i < GetMaxHeight(); i++) {
                                 if (prev_[i] != nullptr) {
                                     int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
+                                    if (key_at_matches(prev_[i]->forward->keys, idx, update_key)) {
                                         prev_[i]->forward->keys[idx] = prev_[level-1]->forward->keys[0];
                                     }
                                     if (idx != 0) break;
@@ -1324,7 +367,6 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                         Node* add_node = NewNode(key);
                         std::memcpy(add_node->keys+1, &prev_[level]->forward->keys[idx+1], (ARR_SIZE - (idx+1)) * sizeof(Key));
                         std::memset(&prev_[level]->forward->keys[idx+1], 0, (ARR_SIZE - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         add_node->N_key += ARR_SIZE - (idx+1);
                         add_node->forward = prev_[level]->forward->forward;
                         prev_[level]->forward->N_key -= ARR_SIZE - (idx+1);
@@ -1356,7 +398,7 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                 if (level == 0) { // Case 3-1-1: Insert into H0
                     int idx = findMaxLessOrEqual(prev_[level]->keys, key);
                     if (idx == 0 && prev_[level]->keys[0] > key) idx = -1;
-                    if (prev_[level]->keys[idx] == key) {
+                    if (key_at_matches(prev_[level]->keys, idx, key)) {
                         stop_flag++;
                     } else {
                         if (prev_[level]->keys[idx+1] == 0) {
@@ -1364,7 +406,6 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                             prev_[level]->N_key++;    
                         } else {
                             std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[idx+1] = key;
                             prev_[level]->N_key++;
                         }
@@ -1378,7 +419,7 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                 } else { // Case 3-1-2: Not insert into H0
                     int idx = findMaxLessOrEqual(prev_[level]->keys, prev_[level-1]->keys[0]);
                     if (idx == 0 && prev_[level]->keys[0] > prev_[level-1]->keys[0]) idx = -1;
-                    if (prev_[level]->keys[idx] == prev_[level-1]->keys[0]) {
+                    if (key_at_matches(prev_[level]->keys, idx, prev_[level-1]->keys[0])) {
                         stop_flag++;
                     } else {
                         if (prev_[level]->keys[idx+1] == 0) {
@@ -1388,7 +429,6 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                         } else {
                             std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
                             std::memmove(&prev_[level]->next[idx+2], &prev_[level]->next[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
                             prev_[level]->next[idx+1] = prev_[level-1];
                             prev_[level]->N_key++;
@@ -1405,7 +445,6 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                 // When creating a new node, change prev to the newly created node.
                 // Uneven-split operation
                 if (level == 0) { // Case 3-2-1: Insert into H0
-                    split_count++; // Signal.Jin
                     int idx = findMaxLessOrEqual(prev_[level]->keys, key);
                     if (idx == 0 && prev_[level]->keys[0] > key) idx = -1;
                     { 
@@ -1425,7 +464,6 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                                 Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
                                 std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                                 std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 add_node->N_key = ARR_SIZE/2;
                                 add_node->forward = prev_[level]->forward;
                                 prev_[level]->forward = add_node;
@@ -1436,13 +474,12 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                                     Key update_key = prev_[level]->keys[0];
                                     prev_[level]->N_key = ARR_SIZE / 2;
                                     std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                    shift_count++; // Signal.Jin
                                     prev_[level]->keys[idx+1] = key;
                                     prev_[level]->N_key++;
                                     if (idx == -1) {
                                         for (int update = level+1; update < GetMaxHeight(); update++) {
                                             int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                                            if (prev_[update]->forward->keys[idx] == update_key) {
+                                            if (key_at_matches(prev_[update]->forward->keys, idx, update_key)) {
                                                 prev_[update]->forward->keys[idx] = key;
                                             }
                                             if (idx != 0) break;
@@ -1461,13 +498,11 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                                 Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
                                 std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                                 std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 add_node->N_key = ARR_SIZE/2 + 1;
                                 add_node->forward = prev_[level]->forward;
                                 prev_[level]->forward = add_node;
                                 prev_[level] = add_node;
                                 std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 prev_[level]->keys[idx+1] = key;
                                 level++;
                                 if (cur_height < level) {
@@ -1477,7 +512,6 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                         }
                     }
                 } else { // Case 3-2-2: Not insert into H0
-                    split_count++; // Signal.Jin
                     int idx = findMaxLessOrEqual(prev_[level]->keys, prev_[level-1]->keys[0]);
                     if (idx == 0 && prev_[level]->keys[0] > prev_[level-1]->keys[0]) idx = -1;
                     {
@@ -1499,7 +533,6 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                                 std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                                 std::memcpy(add_node->next, &prev_[level]->next[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(prev_[level]->next[0]));
                                 std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 for (int i = ARR_SIZE/2; i < ARR_SIZE; i++) {
                                     prev_[level]->next[i] = nullptr;
                                 }
@@ -1515,14 +548,13 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                                     prev_[level]->N_key = ARR_SIZE / 2;
                                     std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
                                     std::memmove(&prev_[level]->next[idx+2], &prev_[level]->next[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(prev_[level]->next[0]));
-                                    shift_count++; // Signal.Jin
                                     prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
                                     prev_[level]->next[idx+1] = prev_[level-1];
                                     prev_[level]->N_key++;
                                     if (idx == -1) {
                                         for (int update = level+1; update < GetMaxHeight(); update++) {
                                             int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                                            if (prev_[update]->forward->keys[idx] == update_key) {
+                                            if (key_at_matches(prev_[update]->forward->keys, idx, update_key)) {
                                                 prev_[update]->forward->keys[idx] = prev_[level]->forward->keys[0];
                                             }
                                             if (idx != 0) break;
@@ -1542,7 +574,6 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                                 std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                                 std::memcpy(add_node->next, &prev_[level]->next[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(prev_[level]->next[0]));
                                 std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 for (int i = ARR_SIZE/2; i < ARR_SIZE; i++) {
                                     prev_[level]->next[i] = nullptr;
                                 }
@@ -1552,7 +583,6 @@ void SkipList<Key>::Insert_usplit(const Key& key) {
                                 prev_[level] = add_node;
                                 std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
                                 std::memmove(&prev_[level]->next[idx+2], &prev_[level]->next[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(prev_[level]->next[0]));
-                                shift_count++; // Signal.Jin
                                 prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
                                 prev_[level]->next[idx+1] = prev_[level-1];
                                 level++;
@@ -1640,7 +670,7 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                     int idx = findMaxLessOrEqual(prev_[level]->forward->keys, key);
                     if (idx == 0 && prev_[level]->forward->keys[0] > key) idx = -1;
 
-                    if (prev_[level]->forward->keys[idx] == key) {
+                    if (key_at_matches(prev_[level]->forward->keys, idx, key)) {
                         break;
                     } else if (prev_[level]->forward->keys[idx+1] == 0) {
                         prev_[level]->forward->keys[idx+1] = key;
@@ -1654,14 +684,13 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                     } else {
                         Key update_key = prev_[level]->forward->keys[0];
                         std::memmove(&prev_[level]->forward->keys[idx+2], &prev_[level]->forward->keys[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         prev_[level]->forward->keys[idx+1] = key;
                         prev_[level]->forward->N_key++;
                         if (idx == -1) {
                             for (int i = level+1; i < GetMaxHeight(); i++) {
                                 if (prev_[i] != nullptr) {
                                     int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
+                                    if (key_at_matches(prev_[i]->forward->keys, idx, update_key)) {
                                         prev_[i]->forward->keys[idx] = key;
                                     }
                                     if (idx != 0) break;
@@ -1680,7 +709,7 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                     int idx = findMaxLessOrEqual(prev_[level]->forward->keys, prev_[level-1]->forward->keys[0]);
                     if (idx == 0 && prev_[level]->forward->keys[0] > prev_[level-1]->forward->keys[0]) idx = -1;
 
-                    if (prev_[level]->forward->keys[idx] == prev_[level-1]->forward->keys[0]) {
+                    if (key_at_matches(prev_[level]->forward->keys, idx, prev_[level-1]->forward->keys[0])) {
                         break;
                     } else if (prev_[level]->forward->keys[idx+1] == 0) {
                         prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
@@ -1696,7 +725,6 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                         Key update_key = prev_[level]->forward->keys[0];
                         std::memmove(&prev_[level]->forward->keys[idx+2], &prev_[level]->forward->keys[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
                         std::memmove(&prev_[level]->forward->next[idx+2], &prev_[level]->forward->next[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
                         prev_[level]->forward->next[idx+1] = prev_[level-1]->forward;
                         prev_[level]->forward->N_key++;
@@ -1704,7 +732,7 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                             for (int i = level+1; i < GetMaxHeight(); i++) {
                                 if (prev_[i] != nullptr) {
                                     int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
+                                    if (key_at_matches(prev_[i]->forward->keys, idx, update_key)) {
                                         prev_[i]->forward->keys[idx] = prev_[level-1]->forward->keys[0];
                                     }
                                     if (idx != 0) break;
@@ -1723,11 +751,9 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
             } else { // Case 2-2: Forward node has no room, so we need to make a new node
                 // even-split operation
                 if (level == 0) { // Case 2-2-1: Insert into H0
-                    split_count++; // Signal.Jin
                     Node * add_node = NewNode(prev_[level]->forward->keys[ARR_SIZE/2]);
                     std::memcpy(add_node->keys, &prev_[level]->forward->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                     std::memset(&prev_[level]->forward->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                    shift_count++; // Signal.Jin
                     add_node->N_key = ARR_SIZE/2;
                     add_node->forward = prev_[level]->forward->forward;
                     prev_[level]->forward->forward = add_node;
@@ -1739,7 +765,7 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                     for (int update = level+1; update < GetMaxHeight(); update++) {
                         if (prev_[update]->forward != nullptr) {
                             int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                            if (prev_[update]->forward->keys[idx] == update_key) {
+                            if (key_at_matches(prev_[update]->forward->keys, idx, update_key)) {
                                 prev_[update]->forward->keys[idx] = key;
                             }
                             if (idx != 0) break;
@@ -1755,12 +781,10 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                         max_height_++;
                     }
                 } else { // Case 2-2-2: Not insert into H0
-                    split_count++; // Signal.Jin
                     Node * add_node = NewNode(prev_[level]->forward->keys[ARR_SIZE/2]);
                     std::memcpy(add_node->keys, &prev_[level]->forward->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                     std::memcpy(add_node->next, &prev_[level]->forward->next[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(prev_[level]->forward->next[0]));
                     std::memset(&prev_[level]->forward->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                    shift_count++; // Signal.Jin
                     add_node->N_key = ARR_SIZE/2;
                     add_node->forward = prev_[level]->forward->forward;
                     prev_[level]->forward->forward = add_node;
@@ -1772,7 +796,7 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                     prev_[level]->forward->keys[0] = prev_[level-1]->forward->keys[0];
                     for (int update = level+1; update < GetMaxHeight(); update++) {
                         int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                        if (prev_[update]->forward->keys[idx] == update_key) {
+                        if (key_at_matches(prev_[update]->forward->keys, idx, update_key)) {
                             prev_[update]->forward->keys[idx] = prev_[level-1]->forward->keys[0];
                         }
                         if (idx != 0) break;
@@ -1794,7 +818,7 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                 if (level == 0) { // Case 3-1-1: Insert into H0
                     int idx = findMaxLessOrEqual(prev_[level]->keys, key);
                     if (idx == 0 && prev_[level]->keys[0] > key) idx = -1;
-                    if (prev_[level]->keys[idx] == key) {
+                    if (key_at_matches(prev_[level]->keys, idx, key)) {
                         stop_flag++;
                     } else {
                         if (prev_[level]->keys[idx+1] == 0) {
@@ -1802,7 +826,6 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                             prev_[level]->N_key++;    
                         } else {
                             std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[idx+1] = key;
                             prev_[level]->N_key++;
                         }
@@ -1816,7 +839,7 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                 } else { // Case 3-1-2: Not insert into H0
                     int idx = findMaxLessOrEqual(prev_[level]->keys, prev_[level-1]->keys[0]);
                     if (idx == 0 && prev_[level]->keys[0] > prev_[level-1]->keys[0]) idx = -1;
-                    if (prev_[level]->keys[idx] == prev_[level-1]->keys[0]) {
+                    if (key_at_matches(prev_[level]->keys, idx, prev_[level-1]->keys[0])) {
                         stop_flag++;
                     } else {
                         if (prev_[level]->keys[idx+1] == 0) {
@@ -1826,7 +849,6 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                         } else {
                             std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
                             std::memmove(&prev_[level]->next[idx+2], &prev_[level]->next[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
                             prev_[level]->next[idx+1] = prev_[level-1];
                             prev_[level]->N_key++;
@@ -1843,14 +865,12 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                 // When creating a new node, change prev to the newly created node.
                 // even-split operation
                 if (level == 0) { // Case 3-2-1: Insert into H0
-                    split_count++; // Signal.Jin
                     int idx = findMaxLessOrEqual(prev_[level]->keys, key);
                     {
                         if (idx < ARR_SIZE / 2) {
                             Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
                             std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                             std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             add_node->N_key = ARR_SIZE/2;
                             add_node->forward = prev_[level]->forward;
                             prev_[level]->forward = add_node;
@@ -1861,14 +881,12 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                                 Key update_key = prev_[level]->keys[0];
                                 prev_[level]->N_key = ARR_SIZE / 2;
                                 std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 prev_[level]->keys[idx+1] = key;
                                 prev_[level]->N_key++;
                                 if (idx == -1) {
                                     for (int update = level+1; update < GetMaxHeight(); update++) {
                                         int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                                        //printf("Case 3-2-1 (2) Index = %d\n", idx);
-                                        if (prev_[update]->forward->keys[idx] == update_key) {
+                                        if (key_at_matches(prev_[update]->forward->keys, idx, update_key)) {
                                             prev_[update]->forward->keys[idx] = key;
                                         }
                                         if (idx != 0) break;
@@ -1887,13 +905,11 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                             Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
                             std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                             std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             add_node->N_key = ARR_SIZE/2 + 1;
                             add_node->forward = prev_[level]->forward;
                             prev_[level]->forward = add_node;
                             prev_[level] = add_node;
                             std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[idx+1] = key;
                             level++;
                             if (cur_height < level) {
@@ -1902,7 +918,6 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                         }
                     }
                 } else { // Case 3-2-2: Not insert into H0
-                    split_count++; // Signal.Jin
                     int idx = findMaxLessOrEqual(prev_[level]->keys, prev_[level-1]->keys[0]);
                     {
                         if (idx < ARR_SIZE / 2) {
@@ -1910,7 +925,6 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                             std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                             std::memcpy(add_node->next, &prev_[level]->next[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(prev_[level]->next[0]));
                             std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             for (int i = ARR_SIZE/2; i < ARR_SIZE; i++) {
                                 prev_[level]->next[i] = nullptr;
                             }
@@ -1926,14 +940,13 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                                 prev_[level]->N_key = ARR_SIZE / 2;
                                 std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
                                 std::memmove(&prev_[level]->next[idx+2], &prev_[level]->next[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(prev_[level]->next[0]));
-                                shift_count++; // Signal.Jin
                                 prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
                                 prev_[level]->next[idx+1] = prev_[level-1];
                                 prev_[level]->N_key++;
                                 if (idx == -1) {
                                     for (int update = level+1; update < GetMaxHeight(); update++) {
                                         int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                                        if (prev_[update]->forward->keys[idx] == update_key) {
+                                        if (key_at_matches(prev_[update]->forward->keys, idx, update_key)) {
                                             prev_[update]->forward->keys[idx] = prev_[level]->forward->keys[0];
                                         }
                                         if (idx != 0) break;
@@ -1953,7 +966,6 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                             std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                             std::memcpy(add_node->next, &prev_[level]->next[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(prev_[level]->next[0]));
                             std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             for (int i = ARR_SIZE/2; i < ARR_SIZE; i++) {
                                 prev_[level]->next[i] = nullptr;
                             }
@@ -1963,7 +975,6 @@ void SkipList<Key>::Insert_esplit(const Key& key) {
                             prev_[level] = add_node;
                             std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
                             std::memmove(&prev_[level]->next[idx+2], &prev_[level]->next[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(prev_[level]->next[0]));
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
                             prev_[level]->next[idx+1] = prev_[level-1];
                             level++;
@@ -2050,7 +1061,7 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                     int idx = findMaxLessOrEqual(prev_[level]->forward->keys, key);
                     if (idx == 0 && prev_[level]->forward->keys[0] > key) idx = -1;
 
-                    if (prev_[level]->forward->keys[idx] == key) {
+                    if (key_at_matches(prev_[level]->forward->keys, idx, key)) {
                         break;
                     } else if (prev_[level]->forward->keys[idx+1] == 0) {
                         prev_[level]->forward->keys[idx+1] = key;
@@ -2064,14 +1075,13 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                     } else {
                         Key update_key = prev_[level]->forward->keys[0];
                         std::memmove(&prev_[level]->forward->keys[idx+2], &prev_[level]->forward->keys[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         prev_[level]->forward->keys[idx+1] = key;
                         prev_[level]->forward->N_key++;
                         if (idx == -1) {
                             for (int i = level+1; i < GetMaxHeight(); i++) {
                                 if (prev_[i] != nullptr) {
                                     int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
+                                    if (key_at_matches(prev_[i]->forward->keys, idx, update_key)) {
                                         prev_[i]->forward->keys[idx] = key;
                                     }
                                     if (idx != 0) break;
@@ -2090,7 +1100,7 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                     int idx = findMaxLessOrEqual(prev_[level]->forward->keys, prev_[level-1]->forward->keys[0]);
                     if (idx == 0 && prev_[level]->forward->keys[0] > prev_[level-1]->forward->keys[0]) idx = -1;
 
-                    if (prev_[level]->forward->keys[idx] == prev_[level-1]->forward->keys[0]) {
+                    if (key_at_matches(prev_[level]->forward->keys, idx, prev_[level-1]->forward->keys[0])) {
                         break;
                     } else if (prev_[level]->forward->keys[idx+1] == 0) {
                         prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
@@ -2106,7 +1116,6 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                         Key update_key = prev_[level]->forward->keys[0];
                         std::memmove(&prev_[level]->forward->keys[idx+2], &prev_[level]->forward->keys[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
                         std::memmove(&prev_[level]->forward->next[idx+2], &prev_[level]->forward->next[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
                         prev_[level]->forward->next[idx+1] = prev_[level-1]->forward;
                         prev_[level]->forward->N_key++;
@@ -2114,7 +1123,7 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                             for (int i = level+1; i < GetMaxHeight(); i++) {
                                 if (prev_[i] != nullptr) {
                                     int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
+                                    if (key_at_matches(prev_[i]->forward->keys, idx, update_key)) {
                                         prev_[i]->forward->keys[idx] = prev_[level-1]->forward->keys[0];
                                     }
                                     if (idx != 0) break;
@@ -2163,7 +1172,6 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                             for (int do_shift = prev_[level]->N_key-1; do_shift > shift; do_shift--) {
                                 prev_[level]->keys[do_shift+1] = prev_[level]->keys[do_shift];
                             }
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[shift+1] = key;
                             prev_[level]->N_key++;
                             if (prev_[level]->N_key == ARR_SIZE && prev_[level+1] == head_[level+1]) {
@@ -2195,7 +1203,6 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                                 prev_[level]->keys[do_shift+1] = prev_[level]->keys[do_shift];
                                 prev_[level]->next[do_shift+1] = prev_[level]->next[do_shift];
                             }
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[shift+1] = prev_[level-1]->keys[0];
                             prev_[level]->next[shift+1] = prev_[level-1];
                             prev_[level]->N_key++;
@@ -2233,14 +1240,12 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                                 for (int do_shift = prev_[level]->N_key-2; do_shift > shift; do_shift--) {
                                     prev_[level]->keys[do_shift+1] = prev_[level]->keys[do_shift];
                                 }
-                                shift_count++; // Signal.Jin
                                 prev_[level]->keys[shift+1] = key;
                                 if (prev_[level]->forward != nullptr && prev_[level]->forward->N_key < ARR_SIZE) {
                                     Key update_key = prev_[level]->forward->keys[0];
                                     for (int d_shift = prev_[level]->forward->N_key; d_shift > 0; d_shift--) {
                                         prev_[level]->forward->keys[d_shift] = prev_[level]->forward->keys[d_shift-1];
                                     }
-                                    shift_count++; // Signal.Jin
                                     prev_[level]->forward->keys[0] = temp_key;
                                     prev_[level]->forward->N_key++;
                                     if (false) {
@@ -2290,7 +1295,6 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                             for (int d_shift = prev_[level]->forward->N_key; d_shift > 0; d_shift--) {
                                 prev_[level]->forward->keys[d_shift] = prev_[level]->forward->keys[d_shift-1];
                             }
-                            shift_count++; // Signal.Jin
                             prev_[level]->forward->keys[0] = key;
                             prev_[level]->forward->N_key++;
                             if (false) {
@@ -2352,7 +1356,6 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                                         prev_[level]->forward->keys[d_shift] = prev_[level]->forward->keys[d_shift-1];
                                         prev_[level]->forward->next[d_shift] = prev_[level]->forward->next[d_shift-1];
                                     }
-                                    shift_count++; // Signal.Jin
                                     prev_[level]->forward->keys[0] = temp_key;
                                     prev_[level]->forward->next[0] = temp_next;
                                     prev_[level]->forward->N_key++;
@@ -2405,7 +1408,6 @@ void SkipList<Key>::Insert_Search(const Key& key) {
                                 prev_[level]->forward->keys[d_shift] = prev_[level]->forward->keys[d_shift-1];
                                 prev_[level]->forward->next[d_shift] = prev_[level]->forward->next[d_shift-1];
                             }
-                            shift_count++; // Signal.Jin
                             prev_[level]->forward->keys[0] = prev_[level-1]->keys[0];
                             prev_[level]->forward->next[0] = prev_[level-1];
                             prev_[level]->forward->N_key++;
@@ -2522,7 +1524,7 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                     int idx = findMaxLessOrEqualLinear(prev_[level]->forward->keys, key, prev_[level]->forward->N_key);
                     if (idx == 0 && prev_[level]->forward->keys[0] > key) idx = -1;
 
-                    if (prev_[level]->forward->keys[idx] == key) {
+                    if (key_at_matches(prev_[level]->forward->keys, idx, key)) {
                         break;
                     } else if (prev_[level]->forward->keys[idx+1] == 0) {
                         prev_[level]->forward->keys[idx+1] = key;
@@ -2536,14 +1538,13 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                     } else {
                         Key update_key = prev_[level]->forward->keys[0];
                         std::memmove(&prev_[level]->forward->keys[idx+2], &prev_[level]->forward->keys[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         prev_[level]->forward->keys[idx+1] = key;
                         prev_[level]->forward->N_key++;
                         if (idx == -1) {
                             for (int i = level+1; i < GetMaxHeight(); i++) {
                                 if (prev_[i] != nullptr) {
                                     int idx = findMaxLessOrEqualLinear(prev_[i]->forward->keys, update_key, prev_[i]->forward->N_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
+                                    if (key_at_matches(prev_[i]->forward->keys, idx, update_key)) {
                                         prev_[i]->forward->keys[idx] = key;
                                     }
                                     if (idx != 0) break;
@@ -2562,7 +1563,7 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                     int idx = findMaxLessOrEqualLinear(prev_[level]->forward->keys, prev_[level-1]->forward->keys[0], prev_[level]->forward->N_key);
                     if (idx == 0 && prev_[level]->forward->keys[0] > prev_[level-1]->forward->keys[0]) idx = -1;
 
-                    if (prev_[level]->forward->keys[idx] == prev_[level-1]->forward->keys[0]) {
+                    if (key_at_matches(prev_[level]->forward->keys, idx, prev_[level-1]->forward->keys[0])) {
                         break;
                     } else if (prev_[level]->forward->keys[idx+1] == 0) {
                         prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
@@ -2578,7 +1579,6 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                         Key update_key = prev_[level]->forward->keys[0];
                         std::memmove(&prev_[level]->forward->keys[idx+2], &prev_[level]->forward->keys[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
                         std::memmove(&prev_[level]->forward->next[idx+2], &prev_[level]->forward->next[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
                         prev_[level]->forward->next[idx+1] = prev_[level-1]->forward;
                         prev_[level]->forward->N_key++;
@@ -2586,7 +1586,7 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                             for (int i = level+1; i < GetMaxHeight(); i++) {
                                 if (prev_[i] != nullptr) {
                                     int idx = findMaxLessOrEqualLinear(prev_[i]->forward->keys, update_key, prev_[i]->forward->N_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
+                                    if (key_at_matches(prev_[i]->forward->keys, idx, update_key)) {
                                         prev_[i]->forward->keys[idx] = prev_[level-1]->forward->keys[0];
                                     }
                                     if (idx != 0) break;
@@ -2635,7 +1635,6 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                             for (int do_shift = prev_[level]->N_key-1; do_shift > shift; do_shift--) {
                                 prev_[level]->keys[do_shift+1] = prev_[level]->keys[do_shift];
                             }
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[shift+1] = key;
                             prev_[level]->N_key++;
                             if (prev_[level]->N_key == ARR_SIZE && prev_[level+1] == head_[level+1]) {
@@ -2667,7 +1666,6 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                                 prev_[level]->keys[do_shift+1] = prev_[level]->keys[do_shift];
                                 prev_[level]->next[do_shift+1] = prev_[level]->next[do_shift];
                             }
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[shift+1] = prev_[level-1]->keys[0];
                             prev_[level]->next[shift+1] = prev_[level-1];
                             prev_[level]->N_key++;
@@ -2705,14 +1703,12 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                                 for (int do_shift = prev_[level]->N_key-2; do_shift > shift; do_shift--) {
                                     prev_[level]->keys[do_shift+1] = prev_[level]->keys[do_shift];
                                 }
-                                shift_count++; // Signal.Jin
                                 prev_[level]->keys[shift+1] = key;
                                 if (prev_[level]->forward != nullptr && prev_[level]->forward->N_key < ARR_SIZE) {
                                     Key update_key = prev_[level]->forward->keys[0];
                                     for (int d_shift = prev_[level]->forward->N_key; d_shift > 0; d_shift--) {
                                         prev_[level]->forward->keys[d_shift] = prev_[level]->forward->keys[d_shift-1];
                                     }
-                                    shift_count++; // Signal.Jin
                                     prev_[level]->forward->keys[0] = temp_key;
                                     prev_[level]->forward->N_key++;
                                     if (false) {
@@ -2762,7 +1758,6 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                             for (int d_shift = prev_[level]->forward->N_key; d_shift > 0; d_shift--) {
                                 prev_[level]->forward->keys[d_shift] = prev_[level]->forward->keys[d_shift-1];
                             }
-                            shift_count++; // Signal.Jin
                             prev_[level]->forward->keys[0] = key;
                             prev_[level]->forward->N_key++;
                             if (false) {
@@ -2824,7 +1819,6 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                                         prev_[level]->forward->keys[d_shift] = prev_[level]->forward->keys[d_shift-1];
                                         prev_[level]->forward->next[d_shift] = prev_[level]->forward->next[d_shift-1];
                                     }
-                                    shift_count++; // Signal.Jin
                                     prev_[level]->forward->keys[0] = temp_key;
                                     prev_[level]->forward->next[0] = temp_next;
                                     prev_[level]->forward->N_key++;
@@ -2877,7 +1871,6 @@ void SkipList<Key>::Insert_Raise(const Key& key) {
                                 prev_[level]->forward->keys[d_shift] = prev_[level]->forward->keys[d_shift-1];
                                 prev_[level]->forward->next[d_shift] = prev_[level]->forward->next[d_shift-1];
                             }
-                            shift_count++; // Signal.Jin
                             prev_[level]->forward->keys[0] = prev_[level-1]->keys[0];
                             prev_[level]->forward->next[0] = prev_[level-1];
                             prev_[level]->forward->N_key++;
@@ -3204,7 +2197,7 @@ bool SkipList<Key>::Delete(const Key& key) const {
                 for (int i = level+1; i < GetMaxHeight(); i++) {
                     if (prev_[i] != nullptr) {
                         int idx = findMaxLessOrEqual(prev_[i]->keys, del_key);
-                        if (prev_[i]->keys[idx] == del_key) {
+                        if (key_at_matches(prev_[i]->keys, idx, del_key)) {
                             prev_[i]->keys[idx] = update_key;
                         }
                         if (idx != 0) break;
@@ -3220,7 +2213,7 @@ bool SkipList<Key>::Delete(const Key& key) const {
                 for (int i = level+1; i < GetMaxHeight(); i++) {
                     if (prev_[i] != nullptr) {
                         int idx = findMaxLessOrEqual(prev_[i]->keys, del_key);
-                        if (prev_[i]->keys[idx] == del_key) {
+                        if (key_at_matches(prev_[i]->keys, idx, del_key)) {
                             std::memmove(&prev_[i]->keys[idx], &prev_[i]->keys[idx + 1], (prev_[i]->N_key - idx - 1) * sizeof(Key));
                             std::memmove(&prev_[i]->next[idx], &prev_[i]->next[idx + 1], (prev_[i]->N_key - idx - 1) * sizeof(Key));
                             prev_[i]->keys[prev_[i]->N_key - 1] = 0;
@@ -3413,7 +2406,6 @@ void SkipList<Key>::Array_utilization() {
         while(true) {
             if (x->forward == nullptr) break;
             x = x->forward;
-            //printf("here\n");
             
             double util = 0;
             util = ((double)x->N_key / (double)ARR_SIZE) * 100;
@@ -3434,7 +2426,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
 
     while (true) { // Find the location which will insert the key using prev_ and head_
         prev_[height--] = x;
-        //printf("lookup prev key = %lu\n", prev_[height+1]->keys[0]);
         if (height >= 0) {
             int n_key = x->N_key;
             if (n_key <= ARR_SIZE/2) {
@@ -3491,7 +2482,7 @@ void SkipList<Key>::Insert_future(const Key& key) {
                     int idx = findMaxLessOrEqual(prev_[level]->forward->keys, key);
                     if (idx == 0 && prev_[level]->forward->keys[0] > key) idx = -1;
 
-                    if (prev_[level]->forward->keys[idx] == key) {
+                    if (key_at_matches(prev_[level]->forward->keys, idx, key)) {
                         break;
                     } else if (prev_[level]->forward->keys[idx+1] == 0) {
                         prev_[level]->forward->keys[idx+1] = key;
@@ -3505,14 +2496,13 @@ void SkipList<Key>::Insert_future(const Key& key) {
                     } else {
                         Key update_key = prev_[level]->forward->keys[0];
                         std::memmove(&prev_[level]->forward->keys[idx+2], &prev_[level]->forward->keys[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         prev_[level]->forward->keys[idx+1] = key;
                         prev_[level]->forward->N_key++;
                         if (idx == -1) {
                             for (int i = level+1; i < GetMaxHeight(); i++) {
                                 if (prev_[i] != nullptr) {
                                     int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
+                                    if (key_at_matches(prev_[i]->forward->keys, idx, update_key)) {
                                         prev_[i]->forward->keys[idx] = key;
                                     }
                                     if (idx != 0) break;
@@ -3531,7 +2521,7 @@ void SkipList<Key>::Insert_future(const Key& key) {
                     int idx = findMaxLessOrEqual(prev_[level]->forward->keys, prev_[level-1]->forward->keys[0]);
                     if (idx == 0 && prev_[level]->forward->keys[0] > prev_[level-1]->forward->keys[0]) idx = -1;
 
-                    if (prev_[level]->forward->keys[idx] == prev_[level-1]->forward->keys[0]) {
+                    if (key_at_matches(prev_[level]->forward->keys, idx, prev_[level-1]->forward->keys[0])) {
                         break;
                     } else if (prev_[level]->forward->keys[idx+1] == 0) {
                         prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
@@ -3547,7 +2537,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
                         Key update_key = prev_[level]->forward->keys[0];
                         std::memmove(&prev_[level]->forward->keys[idx+2], &prev_[level]->forward->keys[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
                         std::memmove(&prev_[level]->forward->next[idx+2], &prev_[level]->forward->next[idx+1], (prev_[level]->forward->N_key - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         prev_[level]->forward->keys[idx+1] = prev_[level-1]->forward->keys[0];
                         prev_[level]->forward->next[idx+1] = prev_[level-1]->forward;
                         prev_[level]->forward->N_key++;
@@ -3555,7 +2544,7 @@ void SkipList<Key>::Insert_future(const Key& key) {
                             for (int i = level+1; i < GetMaxHeight(); i++) {
                                 if (prev_[i] != nullptr) {
                                     int idx = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                    if (prev_[i]->forward->keys[idx] == update_key) {
+                                    if (key_at_matches(prev_[i]->forward->keys, idx, update_key)) {
                                         prev_[i]->forward->keys[idx] = prev_[level-1]->forward->keys[0];
                                     }
                                     if (idx != 0) break;
@@ -3582,7 +2571,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
                         Node* add_node = NewNode(key);
                         std::memcpy(add_node->keys+1, &prev_[level]->forward->keys[idx+1], (ARR_SIZE - (idx+1)) * sizeof(Key));
                         std::memset(&prev_[level]->forward->keys[idx+1], 0, (ARR_SIZE - (idx+1)) * sizeof(Key));
-                        shift_count++; // Signal.Jin
                         add_node->N_key += ARR_SIZE - (idx+1);
                         add_node->forward = prev_[level]->forward->forward;
                         prev_[level]->forward->N_key -= ARR_SIZE - (idx+1);
@@ -3614,8 +2602,7 @@ void SkipList<Key>::Insert_future(const Key& key) {
                 if (level == 0) { // Case 3-1-1: Insert into H0
                     int idx = findMaxLessOrEqual(prev_[level]->keys, key);
                     if (idx == 0 && prev_[level]->keys[0] > key) idx = -1;
-                    //printf("Case 3-1 Index = %d\n", idx);
-                    if (prev_[level]->keys[idx] == key) {
+                    if (key_at_matches(prev_[level]->keys, idx, key)) {
                         stop_flag++;
                     } else {
                         if (prev_[level]->keys[idx+1] == 0) {
@@ -3623,7 +2610,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
                             prev_[level]->N_key++;    
                         } else {
                             std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[idx+1] = key;
                             prev_[level]->N_key++;
                         }
@@ -3637,8 +2623,7 @@ void SkipList<Key>::Insert_future(const Key& key) {
                 } else { // Case 3-1-2: Not insert into H0
                     int idx = findMaxLessOrEqual(prev_[level]->keys, prev_[level-1]->keys[0]);
                     if (idx == 0 && prev_[level]->keys[0] > prev_[level-1]->keys[0]) idx = -1;
-                    //printf("Case 3-1-2 Index = %d\n", idx);
-                    if (prev_[level]->keys[idx] == prev_[level-1]->keys[0]) {
+                    if (key_at_matches(prev_[level]->keys, idx, prev_[level-1]->keys[0])) {
                         stop_flag++;
                     } else {
                         if (prev_[level]->keys[idx+1] == 0) {
@@ -3648,7 +2633,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
                         } else {
                             std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
                             std::memmove(&prev_[level]->next[idx+2], &prev_[level]->next[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                            shift_count++; // Signal.Jin
                             prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
                             prev_[level]->next[idx+1] = prev_[level-1];
                             prev_[level]->N_key++;
@@ -3665,9 +2649,7 @@ void SkipList<Key>::Insert_future(const Key& key) {
                 // When creating a new node, change prev to the newly created node.
                 // Uneven-split operaiton
 
-                //auto sp_start = Clock::now();
                 if (level == 0) { // Case 3-2-1: Insert into H0
-                    split_count++; // Signal.Jin
                     int idx = findMaxLessOrEqual(prev_[level]->keys, key);
                     if (idx == 0 && prev_[level]->keys[0] > key) idx = -1;
                     { 
@@ -3680,13 +2662,13 @@ void SkipList<Key>::Insert_future(const Key& key) {
                                 for (int i = level+1; i < GetMaxHeight(); i++) {
                                     if (prev_[i] != nullptr) {
                                         int idx = findMaxLessOrEqual(prev_[i]->keys, update_key);
-                                        if (prev_[i]->keys[idx] == update_key) {
+                                        if (key_at_matches(prev_[i]->keys, idx, update_key)) {
                                             prev_[i]->keys[idx] = key;
                                             if (idx != 0) break;
                                         } else {
                                             if (prev_[i]->forward != nullptr) {
                                                 int idx2 = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                                if (prev_[i]->forward->keys[idx2] == update_key) {
+                                                if (key_at_matches(prev_[i]->forward->keys, idx2, update_key)) {
                                                     prev_[i]->forward->keys[idx2] = key;
                                                     if (idx2 != 0) break;
                                                 }
@@ -3710,7 +2692,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
                                 Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
                                 std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                                 std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 add_node->N_key = ARR_SIZE/2;
                                 add_node->forward = prev_[level]->forward;
                                 prev_[level]->forward = add_node;
@@ -3721,14 +2702,12 @@ void SkipList<Key>::Insert_future(const Key& key) {
                                     Key update_key = prev_[level]->keys[0];
                                     prev_[level]->N_key = ARR_SIZE / 2;
                                     std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                    shift_count++; // Signal.Jin
                                     prev_[level]->keys[idx+1] = key;
                                     prev_[level]->N_key++;
                                     if (idx == -1) {
                                         for (int update = level+1; update < GetMaxHeight(); update++) {
                                             int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                                            //printf("Case 3-2-1 (2) Index = %d\n", idx);
-                                            if (prev_[update]->forward->keys[idx] == update_key) {
+                                            if (key_at_matches(prev_[update]->forward->keys, idx, update_key)) {
                                                 prev_[update]->forward->keys[idx] = key;
                                             }
                                             if (idx != 0) break;
@@ -3747,13 +2726,11 @@ void SkipList<Key>::Insert_future(const Key& key) {
                                 Node* add_node = NewNode(prev_[level]->keys[ARR_SIZE/2]);
                                 std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                                 std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 add_node->N_key = ARR_SIZE/2 + 1;
                                 add_node->forward = prev_[level]->forward;
                                 prev_[level]->forward = add_node;
                                 prev_[level] = add_node;
                                 std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 prev_[level]->keys[idx+1] = key;
                                 level++;
                                 if (cur_height < level) {
@@ -3763,7 +2740,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
                         }
                     }
                 } else { // Case 3-2-2: Not insert into H0
-                    split_count++; // Signal.Jin
                     int idx = findMaxLessOrEqual(prev_[level]->keys, prev_[level-1]->keys[0]);
                     if (idx == 0 && prev_[level]->keys[0] > prev_[level-1]->keys[0]) idx = -1;
                     {
@@ -3778,13 +2754,13 @@ void SkipList<Key>::Insert_future(const Key& key) {
                                 for (int i = level+1; i < GetMaxHeight(); i++) {
                                     if (prev_[i] != nullptr) {
                                         int idx = findMaxLessOrEqual(prev_[i]->keys, update_key);
-                                        if (prev_[i]->keys[idx] == update_key) {
+                                        if (key_at_matches(prev_[i]->keys, idx, update_key)) {
                                             prev_[i]->keys[idx] = prev_[level-1]->keys[0];
                                             if (idx != 0) break;
                                         } else {
                                             if (prev_[i]->forward != nullptr) {
                                                 int idx2 = findMaxLessOrEqual(prev_[i]->forward->keys, update_key);
-                                                if (prev_[i]->forward->keys[idx2] == update_key) {
+                                                if (key_at_matches(prev_[i]->forward->keys, idx2, update_key)) {
                                                     prev_[i]->forward->keys[idx2] = prev_[level-1]->keys[0];
                                                     if (idx2 != 0) break;
                                                 }
@@ -3810,7 +2786,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
                                 std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                                 std::memcpy(add_node->next, &prev_[level]->next[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(prev_[level]->next[0]));
                                 std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 for (int i = ARR_SIZE/2; i < ARR_SIZE; i++) {
                                     prev_[level]->next[i] = nullptr;
                                 }
@@ -3826,15 +2801,13 @@ void SkipList<Key>::Insert_future(const Key& key) {
                                     prev_[level]->N_key = ARR_SIZE / 2;
                                     std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
                                     std::memmove(&prev_[level]->next[idx+2], &prev_[level]->next[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(prev_[level]->next[0]));
-                                    shift_count++; // Signal.Jin
                                     prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
                                     prev_[level]->next[idx+1] = prev_[level-1];
                                     prev_[level]->N_key++;
                                     if (idx == -1) {
                                         for (int update = level+1; update < GetMaxHeight(); update++) {
                                             int idx = findMaxLessOrEqual(prev_[update]->forward->keys, update_key);
-                                            //printf("Case 3-2-2 (2) Index = %d\n", idx);
-                                            if (prev_[update]->forward->keys[idx] == update_key) {
+                                            if (key_at_matches(prev_[update]->forward->keys, idx, update_key)) {
                                                 prev_[update]->forward->keys[idx] = prev_[level]->forward->keys[0];
                                             }
                                             if (idx != 0) break;
@@ -3854,7 +2827,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
                                 std::memcpy(add_node->keys, &prev_[level]->keys[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(Key));
                                 std::memcpy(add_node->next, &prev_[level]->next[ARR_SIZE/2], (ARR_SIZE/2) * sizeof(prev_[level]->next[0]));
                                 std::memset(&prev_[level]->keys[ARR_SIZE/2], 0, (ARR_SIZE/2) * sizeof(Key));
-                                shift_count++; // Signal.Jin
                                 for (int i = ARR_SIZE/2; i < ARR_SIZE; i++) {
                                     prev_[level]->next[i] = nullptr;
                                 }
@@ -3864,7 +2836,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
                                 prev_[level] = add_node;
                                 std::memmove(&prev_[level]->keys[idx+2], &prev_[level]->keys[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(Key));
                                 std::memmove(&prev_[level]->next[idx+2], &prev_[level]->next[idx+1], (prev_[level]->N_key - (idx+1)) * sizeof(prev_[level]->next[0]));
-                                shift_count++; // Signal.Jin
                                 prev_[level]->keys[idx+1] = prev_[level-1]->keys[0];
                                 prev_[level]->next[idx+1] = prev_[level-1];
                                 level++;
@@ -3875,8 +2846,6 @@ void SkipList<Key>::Insert_future(const Key& key) {
                         }
                     }   
                 }
-                //auto sp_end = Clock::now();
-                //split_time += std::chrono::duration_cast<std::chrono::nanoseconds>(sp_end - sp_start).count();
             }
         }
 

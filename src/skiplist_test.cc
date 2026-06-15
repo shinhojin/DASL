@@ -16,7 +16,15 @@
 #include "latest-generator.h"
 #include "skiplist.h"
 
+int positive_upper_bound(int count) {
+    return std::max(1, count);
+}
+
 double calculatePercentile(const std::vector<double>& data, double percentile) {
+    if (data.empty()) {
+        return 0.0;
+    }
+
     std::vector<double> sortedData = data;
     std::sort(sortedData.begin(), sortedData.end());
 
@@ -467,12 +475,12 @@ void Uniform(const int write, const int read, SkipList<Key>& sl) {
     // Uniformly distributed random generator
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> distr(1, write);
+    std::uniform_int_distribution<int> distr(1, positive_upper_bound(write));
 
     // Insert random keys
     auto w_start = Clock::now();
     for (int i = 1; i <= write; ++i) {
-        sl.Insert_usplit(distr(gen)+1);
+        sl.Insert_usplit(distr(gen));
     }
     auto w_end = Clock::now();
     std::cout << "After Insert\n";
@@ -483,7 +491,7 @@ void Uniform(const int write, const int read, SkipList<Key>& sl) {
     // Search for random keys
     auto r_start = Clock::now();
     for (int i = 1; i <= read; ++i) {
-        sl.Contains(distr(gen)+1);
+        sl.Contains(distr(gen));
     }
     auto r_end = Clock::now();
 
@@ -598,11 +606,11 @@ void Uniform_latency(const int write, const int read, SkipList<Key>& sl) {
     // Uniformly distributed random generator
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> distr(0, write);
+    std::uniform_int_distribution<int> distr(1, positive_upper_bound(write));
 
     // Measure write latencies
     for (int i = 1; i <= write; ++i) {
-        Key key = distr(gen) + 1;
+        Key key = distr(gen);
         auto w_start = Clock::now();
         sl.Insert_usplit(key);
         auto w_end = Clock::now();
@@ -613,7 +621,7 @@ void Uniform_latency(const int write, const int read, SkipList<Key>& sl) {
 
     // Measure read latencies
     for (int i = 1; i <= read; ++i) {
-        Key key = distr(gen) + 1;
+        Key key = distr(gen);
         auto r_start = Clock::now();
         sl.Contains(key);
         auto r_end = Clock::now();
@@ -678,7 +686,7 @@ void Sequential_latency(const int write, const int read, SkipList<Key>& sl) {
 void Uniform_Scan(const int write, const int read, SkipList<Key> &sl) {
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> distr(0, write);
+    std::uniform_int_distribution<int> distr(1, positive_upper_bound(write));
 
     auto w_start = Clock::now();
     for(int i = 1; i <= write; i++) {
@@ -690,7 +698,7 @@ void Uniform_Scan(const int write, const int read, SkipList<Key> &sl) {
     printf("After Insert\n");
     auto r_start = Clock::now();
     for(int i = 1; i <= read; i++) {
-        Key key = distr(gen)+1;
+        Key key = distr(gen);
         sl.Scan(key, 10000);
     }
     auto r_end = Clock::now();
@@ -698,21 +706,22 @@ void Uniform_Scan(const int write, const int read, SkipList<Key> &sl) {
     float r_time, w_time;
     r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001;
     w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001;
-    printf("\n[Uniform-Scan] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time / read, r_time / read);
+    const int op_count = std::max(1, read);
+    printf("\n[Uniform-Scan] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time / op_count, r_time / op_count);
 }
 
 void Array(const int write, const int read, SkipList<Key>& sl) {
     // Uniformly distributed random generator
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> distr(0, write);
+    std::uniform_int_distribution<int> distr(1, positive_upper_bound(write));
 
     //init_zipf_generator(0, write);
 
     // Insert random keys
     auto w_start = Clock::now();
     for (int i = 1; i <= write; ++i) {
-        Key key = distr(gen)+1;
+        Key key = distr(gen);
         //Key key = i;
         sl.Insert_Array(key);
     }
@@ -742,12 +751,12 @@ void Raise(const int write, const int read, SkipList<Key>& sl) {
     // Uniformly distributed random generator
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> distr(0, write);
+    std::uniform_int_distribution<int> distr(1, positive_upper_bound(write));
 
     // Insert random keys
     auto w_start = Clock::now();
     for (int i = 1; i <= write; ++i) {
-        Key key = distr(gen)+1;
+        Key key = distr(gen);
         sl.Insert_Raise(key);
     }
     auto w_end = Clock::now();
@@ -759,7 +768,7 @@ void Raise(const int write, const int read, SkipList<Key>& sl) {
     // Search random keys
     auto r_start = Clock::now();
     for (int i = 1; i <= read; ++i) {
-        Key key = distr(gen)+1;
+        Key key = distr(gen);
         sl.Contains_Raise(key);
     }
     auto r_end = Clock::now();
@@ -775,12 +784,12 @@ void Search(const int write, const int read, SkipList<Key>& sl) {
     // Uniformly distributed random generator
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> distr(0, write);
+    std::uniform_int_distribution<int> distr(1, positive_upper_bound(write));
 
     // Insert random keys
     auto w_start = Clock::now();
     for (int i = 1; i <= write; ++i) {
-        Key key = distr(gen)+1;
+        Key key = distr(gen);
         sl.Insert_Search(key);
     }
     auto w_end = Clock::now();
@@ -792,7 +801,7 @@ void Search(const int write, const int read, SkipList<Key>& sl) {
     // Search random keys
     auto r_start = Clock::now();
     for (int i = 1; i <= read; ++i) {
-        Key key = distr(gen)+1;
+        Key key = distr(gen);
         sl.Contains(key);
     }
     auto r_end = Clock::now();
@@ -808,12 +817,12 @@ void Split(const int write, const int read, SkipList<Key>& sl) {
     // Uniformly distributed random generator
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> distr(0, write);
+    std::uniform_int_distribution<int> distr(1, positive_upper_bound(write));
 
     // Insert random keys
     auto w_start = Clock::now();
     for (int i = 1; i <= write; ++i) {
-        Key key = distr(gen)+1;
+        Key key = distr(gen);
         sl.Insert_usplit(key);
     }
     auto w_end = Clock::now();
@@ -825,7 +834,7 @@ void Split(const int write, const int read, SkipList<Key>& sl) {
     // Search random keys
     auto r_start = Clock::now();
     for (int i = 1; i <= read; ++i) {
-        Key key = distr(gen)+1;
+        Key key = distr(gen);
         sl.Contains(key);
     }
     auto r_end = Clock::now();
@@ -893,12 +902,12 @@ void EvenSplitUniform(const int write, const int read, SkipList<Key>& sl) {
     // Uniformly distributed random generator
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> distr(0, write);
+    std::uniform_int_distribution<int> distr(1, positive_upper_bound(write));
 
     // Insert random keys
     auto w_start = Clock::now();
     for (int i = 1; i <= write; ++i) {
-        Key key = distr(gen)+1;
+        Key key = distr(gen);
         sl.Insert_esplit(key);
     }
     auto w_end = Clock::now();
@@ -910,7 +919,7 @@ void EvenSplitUniform(const int write, const int read, SkipList<Key>& sl) {
     // Search random keys
     auto r_start = Clock::now();
     for (int i = 1; i <= read; ++i) {
-        Key key = distr(gen)+1;
+        Key key = distr(gen);
         sl.Contains(key);
     }
     auto r_end = Clock::now();
@@ -988,12 +997,12 @@ void Uniform_Delete(const int write, const int read, SkipList<Key>& sl) {
     // Uniformly distributed random generator
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<int> distr(1, write);
+    std::uniform_int_distribution<int> distr(1, positive_upper_bound(write));
 
     // Insert random keys
     auto w_start = Clock::now();
     for (int i = 1; i <= write; ++i) {
-        sl.Insert_usplit(distr(gen)+1);
+        sl.Insert_usplit(distr(gen));
     }
     auto w_end = Clock::now();
     std::cout << "After Insert\n";
@@ -1004,7 +1013,7 @@ void Uniform_Delete(const int write, const int read, SkipList<Key>& sl) {
     // Search for random keys
     auto r_start = Clock::now();
     for (int i = 1; i <= read; ++i) {
-        sl.Delete(distr(gen)+1);
+        sl.Delete(distr(gen));
     }
     auto r_end = Clock::now();
 
@@ -1013,61 +1022,6 @@ void Uniform_Delete(const int write, const int read, SkipList<Key>& sl) {
 
     // Display results
     printf("\n[Uniform] Insertion = %.2lf µs, Deletion = %.2lf µs\n", w_time, r_time);
-}
-
-void Uniform_Parallel(const int write, const int read, SkipList<Key>& sl) {
-    
-    auto w_start = Clock::now();
-    std::vector<std::thread> insertThreads;
-    int insertPerThread = write / 2;
-    int insertRemaining = write % 2;
-    
-    for (int t = 0; t < 2; ++t) {
-        int count = insertPerThread + (t < insertRemaining ? 1 : 0);
-        insertThreads.emplace_back([count, write, &sl]() {
-            std::random_device rd_local;
-            std::mt19937 localGen(rd_local());
-            std::uniform_int_distribution<int> localDistr(1, write);
-            for (int i = 0; i < count; ++i) {
-                Key key = localDistr(localGen) + 1;
-                sl.Insert_usplit_parallel2(key);
-            }
-        });
-    }
-    
-    for (auto& th : insertThreads) {
-        th.join();
-    }
-    auto w_end = Clock::now();
-    float w_time = std::chrono::duration_cast<std::chrono::nanoseconds>(w_end - w_start).count() * 0.001f;
-
-    sl.Print();
-    std::cout << "After Insert\n"; 
-    
-    auto r_start = Clock::now();
-    std::vector<std::thread> searchThreads;
-    int searchPerThread = read / 2;
-    int searchRemaining = read % 2;
-    
-    for (int t = 0; t < 2; ++t) {
-        int count = searchPerThread + (t < searchRemaining ? 1 : 0);
-        searchThreads.emplace_back([count, write, &sl]() {
-            std::random_device rd_local;
-            std::mt19937 localGen(rd_local());
-            std::uniform_int_distribution<int> localDistr(1, write);
-            for (int i = 0; i < count; ++i) {
-                sl.Contains(localDistr(localGen) + 1);
-            }
-        });
-    }
-    
-    for (auto& th : searchThreads) {
-        th.join();
-    }
-    auto r_end = Clock::now();
-    float r_time = std::chrono::duration_cast<std::chrono::nanoseconds>(r_end - r_start).count() * 0.001f;
-    
-    printf("\n[Uniform_Parallel] Insertion = %.2lf µs, Lookup = %.2lf µs\n", w_time, r_time);
 }
 
 void printUsage(const char* programName) {
@@ -1153,7 +1107,6 @@ int main(int argc, char *argv[]) {
         case 25: runBenchmarkType1("EvenSplit-Zipfian", EvenSplitZipfian); break;
         case 26: runBenchmarkType1("Uniform Deletion", Uniform_Delete); break;
         case 27: runBenchmarkType1("Zipfian Deletion", Zipfian_Delete); break;
-        case 28: runBenchmarkType1("Uniform Parallel", Uniform_Parallel); break;
         
         // Type 2:
         case 10: runBenchmarkType2("Real-World Dataset (fb)", fb); break;
